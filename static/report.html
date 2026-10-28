@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>评估报告 · ModelEval</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">ModelEval <span class="sub">评估报告</span></div>
+  <nav>
+    <a href="/" style="text-decoration:none"><button class="ghost">← 返回控制台</button></a>
+  </nav>
+</header>
+
+<main>
+  <div class="report-head">
+    <h3 id="r-title" style="margin-right:auto">加载中…</h3>
+    <label class="hint-inline">A/B 对比</label>
+    <select id="r-compare" style="width:180px"><option value="">选择对比 Run</option></select>
+    <a id="exp-md" target="_blank"><button class="ghost">导出 Markdown</button></a>
+    <a id="exp-xlsx" target="_blank"><button class="ghost">导出 Excel</button></a>
+    <a id="exp-jsonl" target="_blank"><button class="ghost">导出交互 JSONL</button></a>
+  </div>
+
+  <div id="compare-box" class="panel hidden" style="margin-bottom:14px">
+    <h3>A/B 对比</h3>
+    <div id="compare-body"></div>
+  </div>
+
+  <div id="cards" class="cards"></div>
+
+  <div class="two-col">
+    <div class="panel">
+      <h3>终止原因分布</h3>
+      <div id="stop-dist"></div>
+    </div>
+    <div class="panel" id="task-metrics-box">
+      <h3>任务自定义指标（均值）</h3>
+      <div id="task-metrics"></div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:14px">
+    <h3>样例明细</h3>
+    <table class="tbl" id="cases-table">
+      <thead><tr><th>#</th><th>打乱序列</th><th>结果</th><th>终止原因</th><th>步数</th><th>调用</th>
+        <th>token(↑/↓/思考)</th><th>耗时</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div id="case-detail"></div>
+  </div>
+</main>
+
+<script src="/static/report.js"></script>
+</body>
+</html>

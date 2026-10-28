@@ -1,0 +1,6 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+openai>=1.40
+openpyxl>=3.1
+# 可选：魔方最优解参考（用于“解法效率”指标），安装后自动启用
+# kociemba>=1.2

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ModelEval · 模型评测平台</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">ModelEval <span class="sub">LLM 评测平台</span></div>
+  <nav>
+    <button class="tab active" data-view="run">评测运行</button>
+    <button class="tab" data-view="history">历史与报告</button>
+    <button class="tab" data-view="templates">配置模板</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ============ 评测运行 ============ -->
+  <section id="view-run" class="view active">
+    <div class="cols">
+      <div class="panel form-panel">
+        <h3>评测配置</h3>
+
+        <div class="group">
+          <label>测评任务</label>
+          <select id="f-task"></select>
+        </div>
+
+        <div class="group">
+          <label>模型提供商</label>
+          <select id="f-provider"></select>
+          <div class="hint" id="provider-hint"></div>
+        </div>
+
+        <div class="group" id="key-group">
+          <label>API Key <span class="hint-inline">（保存在后端，前端不回传明文）</span></label>
+          <div class="row">
+            <input type="password" id="f-apikey" placeholder="sk-..." autocomplete="off">
+            <button id="btn-save-key" class="ghost">保存Key</button>
+          </div>
+          <div class="hint" id="key-hint"></div>
+        </div>
+
+        <div class="group">
+          <label>Base URL 覆盖 <span class="hint-inline">（可选，留空用默认）</span></label>
+          <input type="text" id="f-baseurl" placeholder="https://...">
+        </div>
+
+        <div class="group">
+          <label>模型</label>
+          <input type="text" id="f-model" list="model-list" placeholder="模型名称">
+          <datalist id="model-list"></datalist>
+        </div>
+
+        <h4>模型参数</h4>
+        <div class="grid3">
+          <div class="group"><label>temperature</label><input type="number" id="f-temperature" step="0.1" min="0" max="2" value="0.7"></div>
+          <div class="group"><label>top_p</label><input type="number" id="f-top_p" step="0.1" min="0" max="1" value="1.0"></div>
+          <div class="group"><label>max_tokens</label><input type="number" id="f-max_tokens" value="4096"></div>
+        </div>
+
+        <h4>调度约束</h4>
+        <div class="grid3">
+          <div class="group"><label>最大调用次数</label><input type="number" id="f-max_calls" value="20"></div>
+          <div class="group"><label>累计token上限</label><input type="number" id="f-max_total_tokens" value="200000"></div>
+          <div class="group"><label>API超时(秒)</label><input type="number" id="f-api_timeout" value="120"></div>
+          <div class="group"><label>失败重试次数</label><input type="number" id="f-retry" value="2"></div>
+          <div class="group"><label>调用间隔(秒)</label><input type="number" id="f-min_call_interval" step="0.5" value="0"></div>
+          <div class="group"><label>工具调用</label>
+            <select id="f-tool_enabled"><option value="1" selected>开启</option><option value="0">关闭</option></select>
+          </div>
+        </div>
+
+        <h4>任务参数（魔方还原）</h4>
+        <div class="grid3">
+          <div class="group"><label>最大还原步数</label><input type="number" id="f-max_steps" value="50"></div>
+          <div class="group"><label>打乱步数</label><input type="number" id="f-scramble_length" value="20"></div>
+        </div>
+
+        <h4>运行</h4>
+        <div class="grid3">
+          <div class="group"><label>样例数</label><input type="number" id="f-n_cases" value="3" min="1" max="100"></div>
+          <div class="group"><label>随机种子 <span class="hint-inline">(空=随机)</span></label><input type="number" id="f-seed" placeholder="自动"></div>
+        </div>
+
+        <div class="actions">
+          <button id="btn-start" class="primary">开始评测</button>
+          <button id="btn-debug" class="ghost">单样例调试</button>
+          <span class="spacer"></span>
+          <input type="text" id="f-template-name" placeholder="模板名称" style="width:120px">
+          <button id="btn-save-template" class="ghost">存为模板</button>
+        </div>
+      </div>
+
+      <div class="panel stream-panel">
+        <div class="run-head">
+          <h3>实时监控</h3>
+          <div class="run-status">
+            <span id="run-badge" class="badge hidden"></span>
+            <button id="btn-stop" class="danger hidden">停止</button>
+          </div>
+        </div>
+        <div id="run-progress" class="progress hidden"><div id="run-progress-bar"></div><span id="run-progress-text"></span></div>
+        <div id="run-summary" class="run-summary hidden"></div>
+        <div id="cube-stage" title="拖拽可旋转视角">
+          <div class="cube-pivot" id="cube-pivot">
+            <div class="cube-float"><div class="cube-root" id="cube3d"></div></div>
+          </div>
+          <div id="cube-label"></div>
+        </div>
+        <div id="feed" class="feed"><div class="empty">配置左侧参数后点击「开始评测」，此处实时展示每一轮模型交互。</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 历史与报告 ============ -->
+  <section id="view-history" class="view">
+    <div class="panel">
+      <h3>评测历史</h3>
+      <table class="tbl" id="runs-table">
+        <thead><tr><th>ID</th><th>任务</th><th>模型</th><th>样例</th><th>状态</th><th>成功率</th><th>创建时间</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 配置模板 ============ -->
+  <section id="view-templates" class="view">
+    <div class="panel">
+      <h3>配置模板</h3>
+      <table class="tbl" id="tpl-table">
+        <thead><tr><th>名称</th><th>任务</th><th>提供商</th><th>模型</th><th>样例数</th><th>更新时间</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="/static/cube3d.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
