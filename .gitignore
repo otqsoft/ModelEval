@@ -1,6 +1,7 @@
 # Build and Release Folders
 bin-debug/
 bin-release/
+.workbuddy/
 [Oo]bj/
 [Bb]in/
 
