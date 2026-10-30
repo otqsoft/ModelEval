@@ -41,11 +41,13 @@
 
 ```bash
 cd backend
-pip install -r requirements.txt        # 或使用已有 venv
-python selftest.py                     # 自测（魔方状态机 + Mock 全链路 + 熔断判定）
-uvicorn app.main:app --port 8660      # 启动服务
+uv sync                               # 按 pyproject.toml 创建/同步虚拟环境（生成 uv.lock）
+uv run python selftest.py             # 自测（魔方状态机 + Mock 全链路 + 熔断判定）
+uv run app.py                         # 启动服务（默认 127.0.0.1:8660）
 # 打开 http://127.0.0.1:8660
 ```
+
+> 也支持 `uv run uvicorn app.main:app --port 8660`，或 `uv run app.py --port 9000 --host 0.0.0.0 --reload`（热重载开发模式）。
 
 使用方式：
 
@@ -111,7 +113,9 @@ model-eval/
 │   │       ├── base.py       # BaseTask 五方法接口
 │   │       └── cube_task.py  # 魔方还原实现
 │   ├── data/                # SQLite 数据库与导出的报告文件
-│   ├── requirements.txt
+│   ├── app.py               # 便捷启动入口（uv run app.py）
+│   ├── pyproject.toml       # uv 项目配置（依赖声明 + uv.lock）
+│   ├── requirements.txt     # 依赖清单（与 pyproject 保持一致）
 │   └── selftest.py          # 自测脚本
 ├── static/                  # 原生 HTML/JS 前端
 │   ├── index.html / app.js / style.css   # 控制台

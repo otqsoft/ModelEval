@@ -1,0 +1,17 @@
+[project]
+name = "modeleval-backend"
+version = "0.1.0"
+description = "ModelEval 模型测试评估平台 - 后端服务"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "openai>=1.40",
+    "openpyxl>=3.1",
+    # 可选：解法效率指标参考最优解，安装后自动启用
+    # "kociemba>=1.2",
+]
+
+[tool.uv]
+# 本项目是应用（直接运行），不需要作为包被构建/安装
+package = false
