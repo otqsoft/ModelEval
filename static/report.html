@@ -4,11 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>评估报告 · ModelEval</title>
+<link rel="icon" href="/public/favicon.ico">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header>
-  <div class="brand">ModelEval <span class="sub">评估报告</span></div>
+  <div class="brand"><img class="logo" src="/public/logo.png" alt="ModelEval">ModelEval <span class="sub">评估报告</span></div>
   <nav>
     <a href="/" style="text-decoration:none"><button class="ghost">← 返回控制台</button></a>
   </nav>
@@ -32,11 +33,11 @@
   <div id="cards" class="cards"></div>
 
   <div class="two-col">
-    <div class="panel">
+    <div class="panel" style="height: 160px;">
       <h3>终止原因分布</h3>
       <div id="stop-dist"></div>
     </div>
-    <div class="panel" id="task-metrics-box">
+    <div class="panel" id="task-metrics-box" style="height: 160px;">
       <h3>任务自定义指标（均值）</h3>
       <div id="task-metrics"></div>
     </div>
@@ -46,7 +47,7 @@
     <h3>样例明细</h3>
     <table class="tbl" id="cases-table">
       <thead><tr><th>#</th><th>打乱序列</th><th>结果</th><th>终止原因</th><th>步数</th><th>调用</th>
-        <th>token(↑/↓/思考)</th><th>耗时</th><th></th></tr></thead>
+        <th>token(↑/↓/思考)</th><th>费用(元)</th><th>耗时</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
     <div id="case-detail"></div>

@@ -24,6 +24,8 @@ async function init() {
     card("平均调用次数", g.avg_calls),
     card("平均步数", g.avg_moves),
     card("token 合计", g.tokens.total, `↑${g.tokens.prompt} ↓${g.tokens.completion} 思考${g.tokens.reasoning}`),
+    card("评测费用", "¥" + (+g.cost?.total || 0).toFixed(4),
+      g.cost?.has_price ? `输入 ¥${(+g.cost.input).toFixed(4)} · 输出 ¥${(+g.cost.output).toFixed(4)}` : "模型未配置价格"),
     card("平均单样例 token", g.avg_tokens_per_case),
     card("平均调用耗时", g.avg_latency_ms + "ms"),
   ].join("");
@@ -45,7 +47,8 @@ async function init() {
     <td>${c.idx}</td><td><code>${esc(c.scramble)}</code></td>
     <td>${c.status === "success" ? '<span style="color:var(--ok)">✅ 成功</span>' : '<span style="color:var(--bad)">❌ 失败</span>'}</td>
     <td>${stopLabel(c.stop_reason)}</td><td>${c.moves_used}</td><td>${c.calls}</td>
-    <td>${c.prompt_tokens}/${c.completion_tokens}/${c.reasoning_tokens}</td><td>${c.latency_ms}ms</td>
+    <td>${c.prompt_tokens}/${c.completion_tokens}/${c.reasoning_tokens}</td>
+    <td>${+(c.cost || 0).toFixed(4)}</td><td>${c.latency_ms}ms</td>
     <td><span class="link" onclick="toggleCase(${c.id}, this)">交互明细</span></td></tr>`).join("");
 
   // A/B 对比下拉
@@ -72,6 +75,7 @@ async function renderCompare() {
     ["平均步数", a.generic.avg_moves, b.generic.avg_moves],
     ["token 合计", a.generic.tokens.total, b.generic.tokens.total],
     ["其中思考 token", a.generic.tokens.reasoning, b.generic.tokens.reasoning],
+    ["评测费用", "¥" + (+a.generic.cost?.total || 0).toFixed(4), "¥" + (+b.generic.cost?.total || 0).toFixed(4)],
     ["平均单样例耗时", a.generic.avg_latency_ms + "ms", b.generic.avg_latency_ms + "ms"],
   ];
   $("#compare-box").classList.remove("hidden");

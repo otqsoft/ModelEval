@@ -4,13 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ModelEval · 模型评测平台</title>
+<link rel="icon" href="/public/favicon.ico">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header>
-  <div class="brand">ModelEval <span class="sub">LLM 评测平台</span></div>
+  <div class="brand"><img class="logo" src="/public/logo.png" alt="ModelEval">ModelEval <span class="sub">LLM 评测平台</span></div>
   <nav>
     <button class="tab active" data-view="run">评测运行</button>
+    <button class="tab" data-view="providers">供应商管理</button>
     <button class="tab" data-view="history">历史与报告</button>
     <button class="tab" data-view="templates">配置模板</button>
   </nav>
@@ -19,7 +21,7 @@
 <main>
   <!-- ============ 评测运行 ============ -->
   <section id="view-run" class="view active">
-    <div class="cols">
+    <div class="cols-3">
       <div class="panel form-panel">
         <h3>评测配置</h3>
 
@@ -49,9 +51,9 @@
         </div>
 
         <div class="group">
-          <label>模型</label>
-          <input type="text" id="f-model" list="model-list" placeholder="模型名称">
-          <datalist id="model-list"></datalist>
+          <label>模型 <span class="hint-inline">（选择后自动载入参数，可改）</span></label>
+          <select id="f-model"></select>
+          <div class="hint" id="model-info"></div>
         </div>
 
         <h4>模型参数</h4>
@@ -89,12 +91,11 @@
           <button id="btn-start" class="primary">开始评测</button>
           <button id="btn-debug" class="ghost">单样例调试</button>
           <span class="spacer"></span>
-          <input type="text" id="f-template-name" placeholder="模板名称" style="width:120px">
           <button id="btn-save-template" class="ghost">存为模板</button>
         </div>
       </div>
 
-      <div class="panel stream-panel">
+      <div class="panel mid-panel">
         <div class="run-head">
           <h3>实时监控</h3>
           <div class="run-status">
@@ -103,13 +104,17 @@
           </div>
         </div>
         <div id="run-progress" class="progress hidden"><div id="run-progress-bar"></div><span id="run-progress-text"></span></div>
-        <div id="run-summary" class="run-summary hidden"></div>
         <div id="cube-stage" title="拖拽可旋转视角">
           <div class="cube-pivot" id="cube-pivot">
             <div class="cube-float"><div class="cube-root" id="cube3d"></div></div>
           </div>
           <div id="cube-label"></div>
         </div>
+      </div>
+
+      <div class="panel out-panel">
+        <h3>评测输出</h3>
+        <div id="run-summary" class="run-summary hidden"></div>
         <div id="feed" class="feed"><div class="empty">配置左侧参数后点击「开始评测」，此处实时展示每一轮模型交互。</div></div>
       </div>
     </div>
@@ -120,7 +125,7 @@
     <div class="panel">
       <h3>评测历史</h3>
       <table class="tbl" id="runs-table">
-        <thead><tr><th>ID</th><th>任务</th><th>模型</th><th>样例</th><th>状态</th><th>成功率</th><th>创建时间</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>任务</th><th>模型</th><th>样例</th><th>状态</th><th>成功率</th><th>费用</th><th>创建时间</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -136,6 +141,70 @@
       </table>
     </div>
   </section>
+  <!-- ============ 供应商管理 ============ -->
+  <section id="view-providers" class="view">
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h3>供应商与模型</h3>
+        <button id="btn-add-provider" class="ghost">+ 添加供应商</button>
+      </div>
+      <table class="tbl" id="providers-table">
+        <thead><tr>
+          <th>供应商 / 模型</th><th>协议</th><th>端点</th><th>Key</th>
+          <th>上下文</th><th>命中价</th><th>未命中价</th><th>输出价</th><th>多模态</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 对话框 ============ -->
+  <dialog id="dlg-template">
+    <h3>存为配置模板</h3>
+    <div class="group"><label>模板名称</label><input id="tpl-name" placeholder="如 DeepSeek-R1 严格模式"></div>
+    <div class="actions"><span class="spacer"></span>
+      <button id="tpl-cancel" class="ghost">取消</button>
+      <button id="tpl-save" class="primary">保存</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-provider">
+    <h3 id="dlg-provider-title">供应商信息</h3>
+    <div class="group"><label>供应商 ID（唯一，如 glm）</label><input id="pf-id" placeholder="glm"></div>
+    <div class="group"><label>名称</label><input id="pf-name" placeholder="智谱 GLM"></div>
+    <div class="group"><label>协议格式</label>
+      <select id="pf-protocol"><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option></select>
+    </div>
+    <div class="group"><label>Base URL</label><input id="pf-baseurl" placeholder="https://...（可留空用默认）"></div>
+    <div class="group"><label>API Key <span class="hint-inline">（保存在后端，不回传明文）</span></label>
+      <input id="pf-apikey" type="password" placeholder="sk-...（留空则不修改）" autocomplete="off"></div>
+    <div class="actions"><span class="spacer"></span>
+      <button id="pf-cancel" class="ghost">取消</button>
+      <button id="pf-save" class="primary">保存</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-model">
+    <h3>模型信息 <span class="hint-inline">（所属供应商：<span id="mf-provider"></span>）</span></h3>
+    <div class="group"><label>模型名称 / 标识</label><input id="mf-name" placeholder="如 glm-4.6"></div>
+    <div class="grid3">
+      <div class="group"><label>命中输入价(元/百万)</label><input id="mf-ch" type="number" step="0.01" value="0"></div>
+      <div class="group"><label>未命中输入价(元/百万)</label><input id="mf-cm" type="number" step="0.01" value="0"></div>
+      <div class="group"><label>输出价(元/百万)</label><input id="mf-co" type="number" step="0.01" value="0"></div>
+      <div class="group"><label>上下文长度</label><input id="mf-ctx" type="number" value="1000000"></div>
+      <div class="group"><label>temperature</label><input id="mf-temp" type="number" step="0.1" value="0.7"></div>
+      <div class="group"><label>top_p</label><input id="mf-topp" type="number" step="0.1" value="1.0"></div>
+      <div class="group"><label>max_tokens</label><input id="mf-maxtok" type="number" value="4096"></div>
+      <div class="group"><label>支持多模态</label>
+        <select id="mf-multi"><option value="0">否</option><option value="1">是</option></select>
+      </div>
+    </div>
+    <div class="actions"><span class="spacer"></span>
+      <button id="mf-cancel" class="ghost">取消</button>
+      <button id="mf-save" class="primary">保存</button>
+    </div>
+  </dialog>
+
 </main>
 
 <script src="/static/cube3d.js"></script>

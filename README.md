@@ -10,6 +10,7 @@
 
 - **插件化测评任务**：统一 `BaseTask` 五方法接口，新增任务即插即用（魔方还原为默认实现）。
 - **多模型统一管理**：全部基于 OpenAI 兼容协议，内置 6 家 Provider 预设 + 自定义端点。
+- **供应商与模型管理（DB 托管）**：供应商支持协议（OpenAI 兼容 / Anthropic）、base_url、api_key；一个供应商可挂多个模型，模型含命中/未命中输入价、输出价（元/百万 Token）、上下文长度、temperature/top_p/max_tokens、是否多模态。评测时选择模型即自动载入参数（可改）。
 - **三层参数体系**：
   - 模型原生（temperature / top_p / max_tokens）
   - 调度约束（最大调用次数 / 累计 token / 工具开关 / API 超时 / 重试 / 限流间隔）

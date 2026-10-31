@@ -42,6 +42,10 @@ def _norm_usage(u) -> dict:
     rt = getattr(det, "reasoning_tokens", None) if det else None
     if rt:
         d["reasoning_tokens"] = rt
+    pd = getattr(u, "prompt_tokens_details", None)
+    ct = getattr(pd, "cached_tokens", None) if pd else None
+    if ct:
+        d["cached_tokens"] = ct
     return d
 
 
@@ -215,6 +219,196 @@ class MockGateway:
         return resp
 
 
+class AnthropicGateway:
+    """Anthropic Messages API 网关（SSE 流式）。
+
+    引擎传入的是 OpenAI 格式的 messages / tools，本类内部归一为 Anthropic 格式，
+    返回与 OpenAICompatGateway 一致的 dict 形状（content/reasoning/tool_calls/usage/...），
+    供引擎与前端复用。未能从 Anthropic 拿到 usage 时退化为粗略估算。
+    """
+
+    DEFAULT_BASE = "https://api.anthropic.com/v1"
+
+    def __init__(self, provider, model, api_key, base_url=None, model_params=None,
+                 on_event=None, timeout=120, retry=2):
+        self.provider = provider
+        self.model = model
+        self.api_key = api_key or "EMPTY"
+        self.base_url = (base_url or self.DEFAULT_BASE).rstrip("/")
+        self.model_params = model_params or {}
+        self.on_event = on_event
+        self.timeout = timeout
+        self.retry = retry
+
+    def _emit(self, ev_type, payload):
+        if self.on_event:
+            self.on_event(ev_type, payload)
+
+    # ---- OpenAI 格式消息 -> Anthropic 格式 ----
+    @staticmethod
+    def _to_anthropic(messages, tools):
+        system_parts, conv = [], []
+        for m in messages:
+            role = m.get("role")
+            content = m.get("content")
+            if role == "system":
+                system_parts.append(content or "")
+                continue
+            if role == "tool":
+                conv.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": m.get("tool_call_id"),
+                        "content": m.get("content") or "",
+                    }],
+                })
+                continue
+            if role == "assistant" and m.get("tool_calls"):
+                blocks = []
+                if content:
+                    blocks.append({"type": "text", "text": content})
+                for tc in m["tool_calls"]:
+                    try:
+                        inp = json.loads(tc.get("arguments") or "{}")
+                    except Exception:
+                        inp = {"_raw": tc.get("arguments")}
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": tc.get("id") or f"tu_{len(blocks)}",
+                        "name": tc["name"],
+                        "input": inp,
+                    })
+                conv.append({"role": "assistant", "content": blocks})
+                continue
+            conv.append({"role": role, "content": content or ""})
+        system = "\n\n".join(system_parts) if system_parts else None
+        anth_tools = None
+        if tools:
+            anth_tools = []
+            for t in tools:
+                fn = t.get("function") or t
+                anth_tools.append({
+                    "name": fn.get("name"),
+                    "description": fn.get("description", ""),
+                    "input_schema": fn.get("parameters") or {"type": "object", "properties": {}},
+                })
+        return system, conv, anth_tools
+
+    def chat(self, messages, tools=None):
+        last_err = None
+        for attempt in range(self.retry + 1):
+            try:
+                return self._once(messages, tools)
+            except Exception as e:
+                last_err = e
+                if attempt < self.retry and isinstance(e, (urllib.error.URLError, TimeoutError, GatewayError)):
+                    self._emit("llm_retry", {"attempt": attempt + 1, "error": str(e), "backoff": 2 ** attempt})
+                    time.sleep(2 ** attempt)
+                    continue
+                raise GatewayError(f"{type(e).__name__}: {e}") from e
+        raise GatewayError(str(last_err))
+
+    def _once(self, messages, tools):
+        system, conv, anth_tools = self._to_anthropic(messages, tools)
+        body = {
+            "model": self.model,
+            "max_tokens": int(self.model_params.get("max_tokens") or 4096),
+            "messages": conv,
+            "stream": True,
+        }
+        if system:
+            body["system"] = system
+        if anth_tools:
+            body["tools"] = anth_tools
+        if self.model_params.get("temperature") is not None:
+            body["temperature"] = self.model_params["temperature"]
+        if self.model_params.get("top_p") is not None:
+            body["top_p"] = self.model_params["top_p"]
+        body = {k: v for k, v in body.items() if v is not None}
+
+        headers = {
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        data = json.dumps(body).encode("utf-8")
+        url = self.base_url + "/messages"
+        self._emit("llm_start", {"model": self.model})
+        t0 = time.time()
+
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        try:
+            resp = urllib.request.urlopen(req, timeout=self.timeout)
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "ignore")[:500]
+            raise GatewayError(f"HTTP {e.code}: {detail}")
+
+        content_parts, tool_blocks = [], {}
+        usage, finish_reason = None, None
+
+        for raw in resp:
+            line = raw.decode("utf-8", "ignore").strip()
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if payload in ("[DONE]", ""):
+                continue
+            try:
+                ev = json.loads(payload)
+            except Exception:
+                continue
+            etype = ev.get("type")
+            if etype == "content_block_start":
+                block = ev.get("content_block", {})
+                if block.get("type") == "tool_use":
+                    tool_blocks[block["index"]] = {"id": block.get("id"), "name": block.get("name"), "partial": ""}
+            elif etype == "content_block_delta":
+                delta = ev.get("delta", {})
+                dt = delta.get("type")
+                if dt == "text_delta":
+                    text = delta.get("text", "")
+                    content_parts.append(text)
+                    self._emit("llm_delta", {"field": "content", "text": text})
+                elif dt == "input_json_delta":
+                    idx = ev.get("index", 0)
+                    tool_blocks.setdefault(idx, {"id": f"tu_{idx}", "name": "", "partial": ""})
+                    tool_blocks[idx]["partial"] += delta.get("partial_json", "")
+            elif etype == "message_delta":
+                u = ev.get("usage", {})
+                if u:
+                    usage = {
+                        "prompt_tokens": u.get("input_tokens", 0),
+                        "completion_tokens": u.get("output_tokens", 0),
+                        "total_tokens": u.get("input_tokens", 0) + u.get("output_tokens", 0),
+                    }
+                    cr = u.get("cache_read_input_tokens")
+                    if cr:
+                        usage["cached_tokens"] = cr
+                finish_reason = ev.get("delta", {}).get("stop_reason")
+
+        latency_ms = int((time.time() - t0) * 1000)
+        tool_calls = [
+            {"id": b["id"], "name": b["name"], "arguments": b["partial"]}
+            for _, b in sorted(tool_blocks.items())
+        ]
+
+        api_resp = {
+            "content": "".join(content_parts),
+            "reasoning": "",
+            "tool_calls": tool_calls,
+            "finish_reason": finish_reason,
+            "usage": usage or {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "latency_ms": latency_ms,
+            "raw": [],
+            "provider": self.provider,
+            "model": self.model,
+        }
+        if not usage:
+            api_resp["usage"] = _estimate_tokens(messages, api_resp)
+        return api_resp
+
+
 def build_gateway(run_cfg: dict, solution: str = "", on_event=None):
     """根据运行配置构造网关实例。"""
     limits = run_cfg["limits"]
@@ -222,11 +416,13 @@ def build_gateway(run_cfg: dict, solution: str = "", on_event=None):
     if provider == "mock":
         return MockGateway(solution=solution, on_event=on_event)
     from . import db
-    row = db.query_one("SELECT * FROM api_keys WHERE provider=?", (provider,))
-    if not row or not row["api_key"]:
+    row = db.query_one("SELECT * FROM providers WHERE id=?", (provider,))
+    if not row:
+        raise GatewayError(f"未知提供商: {provider}")
+    if not row["api_key"]:
         raise GatewayError(f"提供商 {provider} 未配置 API Key")
     base_url = run_cfg.get("base_url") or (row["base_url"] if row["base_url"] else None)
-    return OpenAICompatGateway(
+    common = dict(
         provider=provider,
         model=run_cfg["model"],
         api_key=row["api_key"],
@@ -236,3 +432,6 @@ def build_gateway(run_cfg: dict, solution: str = "", on_event=None):
         timeout=limits.get("api_timeout", 120),
         retry=limits.get("retry", 2),
     )
+    if (row["protocol"] or "openai") == "anthropic":
+        return AnthropicGateway(**common)
+    return OpenAICompatGateway(**common)

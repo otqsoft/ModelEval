@@ -79,11 +79,12 @@ class Engine:
                 "n_cases": cfg["n_cases"], "seed": cfg["seed"],
             })
             task = create_task(cfg["task"])
+            prices = report.model_prices(cfg["provider"], cfg["model"])  # 模型价格（元/百万Token）
             statuses = []
             for idx in range(cfg["n_cases"]):
                 if rs.stop:
                     break
-                statuses.append(self._run_case(rs, run_id, task, cfg, idx))
+                statuses.append(self._run_case(rs, run_id, task, cfg, idx, prices))
             solved = sum(1 for s in statuses if s == "success")
             total = len(statuses) or 1
             cases = db.query("SELECT * FROM cases WHERE run_id=?", (run_id,))
@@ -100,7 +101,7 @@ class Engine:
 
     # ---------- 单案例执行 ----------
 
-    def _run_case(self, rs, run_id, task, cfg, idx) -> str:
+    def _run_case(self, rs, run_id, task, cfg, idx, prices=None) -> str:
         limits, tp = cfg["limits"], cfg["task_params"]
         case_data = task.create_case(idx, cfg["seed"], tp)
         case_id = db.execute(
@@ -126,13 +127,13 @@ class Engine:
         try:
             gw = gateway.build_gateway(cfg, solution=task.solution_for(case_data), on_event=on_gw_event)
         except gateway.GatewayError as e:
-            self._finish_case(rs, run_id, case_id, case_data, task, {}, "api_error", False, str(e))
+            self._finish_case(rs, run_id, case_id, case_data, task, {}, "api_error", False, str(e), prices)
             return "failed"
 
         msgs = task.build_messages(case_data)
         tools = task.tools_spec() if limits["tool_enabled"] else None
-        counters = {"calls": 0, "prompt": 0, "completion": 0, "reasoning": 0, "latency": 0,
-                    "invalid_streak": 0, "seq": 0}
+        counters = {"calls": 0, "prompt": 0, "completion": 0, "reasoning": 0, "cached": 0,
+                    "latency": 0, "invalid_streak": 0, "seq": 0}
         stop_reason, solved, err_detail = None, False, None
 
         while True:
@@ -171,6 +172,7 @@ class Engine:
             counters["prompt"] += u.get("prompt_tokens", 0)
             counters["completion"] += u.get("completion_tokens", 0)
             counters["reasoning"] += u.get("reasoning_tokens", 0)
+            counters["cached"] += u.get("cached_tokens", 0) or 0
             counters["latency"] += resp.get("latency_ms", 0)
 
             req_snapshot = json.dumps(msgs, ensure_ascii=False)
@@ -265,20 +267,25 @@ class Engine:
 
         status = "success" if solved else "failed"
         self._finish_case(rs, run_id, case_id, case_data, task, counters,
-                          "solved" if solved else stop_reason, solved, err_detail)
+                          "solved" if solved else stop_reason, solved, err_detail, prices)
         return status
 
-    def _finish_case(self, rs, run_id, case_id, case_data, task, counters, stop_reason, solved, err_detail=None):
+    def _finish_case(self, rs, run_id, case_id, case_data, task, counters, stop_reason, solved,
+                     err_detail=None, prices=None):
         score = task.score(case_data, solved)
+        cached = counters.get("cached", 0)
+        cost = report.compute_cost(prices, counters.get("prompt", 0), cached,
+                                   counters.get("completion", 0))["total"]
         db.execute(
             "UPDATE cases SET status=?, stop_reason=?, moves_used=?, calls=?, prompt_tokens=?,"
-            " completion_tokens=?, reasoning_tokens=?, total_tokens=?, latency_ms=?, score=?, finished_at=?"
+            " completion_tokens=?, reasoning_tokens=?, cached_tokens=?, total_tokens=?, latency_ms=?,"
+            " cost=?, score=?, finished_at=?"
             " WHERE id=?",
             ("success" if solved else "failed", stop_reason,
              len(case_data["moves"]), counters.get("calls", 0), counters.get("prompt", 0),
-             counters.get("completion", 0), counters.get("reasoning", 0),
+             counters.get("completion", 0), counters.get("reasoning", 0), cached,
              counters.get("prompt", 0) + counters.get("completion", 0), counters.get("latency", 0),
-             json.dumps(score, ensure_ascii=False), db.now(), case_id),
+             cost, json.dumps(score, ensure_ascii=False), db.now(), case_id),
         )
         self._emit(rs, run_id, "case_finished", {
             "case_id": case_id, "idx": case_data["idx"], "solved": solved,

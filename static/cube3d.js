@@ -7,7 +7,7 @@
   const S = 32;      // cubie 间距(px)
   const HALF = 15;   // cubie 半宽
   const DUR = 300;   // 单步动画时长
-  const COLORS = { U: "#f1f5f9", D: "#fbbf24", F: "#22c55e", B: "#3b82f6", R: "#ef4444", L: "#f97316" };
+  const COLORS = { U: "#f8fafc", D: "#fbbf24", F: "#22c55e", B: "#4f8dff", R: "#ff5252", L: "#ff8a3d" };
   // 与后端 MOVES 一致：轴索引(0=x,1=y,2=z)、层坐标、右手旋转角(度)
   const MOVES = {
     U: { axis: 1, layer: 1, angle: -90 }, D: { axis: 1, layer: -1, angle: 90 },
@@ -23,7 +23,7 @@
     { n: [-1, 0, 0], key: "L", t: "rotateY(-90deg)" },
   ];
 
-  let rootEl = null, labelEl = null, cubies = [];
+  let rootEl = null, stageEl = null, labelEl = null, cubies = [];
   let rx = -24, ry = -34, gen = 0, queue = Promise.resolve();
 
   // ---------- 矩阵工具 ----------
@@ -79,7 +79,14 @@
 
   function setPivot() {
     const pv = document.getElementById("cube-pivot");
-    if (pv) pv.style.transform = "scale(1.18) rotateX(" + rx + "deg) rotateY(" + ry + "deg)";
+    if (!pv) return;
+    // 按舞台高度自适应放大：基础立方体约 96px，放大到舞台的 2/3 左右（约 280-330px）
+    let scale = 2.5;
+    if (stageEl) {
+      const h = stageEl.clientHeight || 400;
+      scale = Math.max(1.4, Math.min(3.4, h / 150));
+    }
+    pv.style.transform = "scale(" + scale.toFixed(2) + ") rotateX(" + rx + "deg) rotateY(" + ry + "deg)";
   }
   function setLabel(t, cls) {
     if (!labelEl) return;
@@ -151,12 +158,14 @@
     stage.addEventListener("pointercancel", () => drag = null);
   }
 
-  function mount(stageEl, cubeEl, label) {
+  function mount(stage, cubeEl, label) {
+    stageEl = stage;
     rootEl = cubeEl;
     labelEl = label;
-    enableDrag(stageEl);
+    enableDrag(stage);
     build(cubeEl);
     setPivot();
+    window.addEventListener("resize", setPivot);  // 视口/面板尺寸变化时重算魔方缩放
     return { reset, apply, setLabel };
   }
 

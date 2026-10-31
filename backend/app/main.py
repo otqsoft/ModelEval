@@ -10,40 +10,143 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db, report
 from .engine import engine as eval_engine
-from .config import DEFAULT_LIMITS, DEFAULT_MODEL_PARAMS, PROVIDERS, RUN_TERMINAL_STATUS, TASKS
+from .config import DEFAULT_LIMITS, DEFAULT_MODEL_PARAMS, RUN_TERMINAL_STATUS, TASKS
 
 STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "static"
 app = FastAPI(title="ModelEval 模型评测平台")
 
 
+@app.middleware("http")
+async def no_cache_for_dev(request: Request, call_next):
+    """开发工具场景：页面与静态资源禁用缓存，避免改版后浏览器新旧文件混搭。"""
+    resp = await call_next(request)
+    if request.url.path in ("/", "/report") or request.url.path.startswith("/static") \
+            or request.url.path.startswith("/public"):
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
+
+
 # ---------- 提供商 / 密钥 ----------
+
+# ---------- 供应商 / 模型管理 ----------
+
+def _serialize_model(m: dict) -> dict:
+    return {
+        "id": m["id"], "provider_id": m["provider_id"], "name": m["name"],
+        "cache_hit_input_price": m["cache_hit_input_price"],
+        "cache_miss_input_price": m["cache_miss_input_price"],
+        "output_price": m["output_price"],
+        "context_length": m["context_length"],
+        "temperature": m["temperature"], "top_p": m["top_p"], "max_tokens": m["max_tokens"],
+        "multimodal": bool(m["multimodal"]),
+    }
+
 
 @app.get("/api/providers")
 def list_providers():
-    keys = {r["provider"]: r for r in db.query("SELECT * FROM api_keys")}
+    rows = db.query("SELECT * FROM providers ORDER BY id")
     out = []
-    for pid, p in PROVIDERS.items():
+    for p in rows:
+        models = db.query("SELECT * FROM models WHERE provider_id=? ORDER BY id", (p["id"],))
         out.append({
-            "id": pid, "label": p["label"], "base_url": p["base_url"],
-            "models": p["models"], "default_model": p["model"],
-            "has_key": pid in keys,
-            "key_hint": (keys[pid]["api_key"][-4:] if pid in keys else None),
-            "override_base_url": keys.get(pid, {}).get("base_url") or None,
+            "id": p["id"], "name": p["name"], "protocol": p["protocol"],
+            "base_url": p["base_url"], "has_key": bool(p["api_key"]),
+            "key_hint": (p["api_key"][-4:] if p["api_key"] else None),
+            "models": [_serialize_model(m) for m in models],
         })
     return out
 
 
-@app.put("/api/keys/{provider}")
-async def save_key(provider: str, request: Request):
+@app.post("/api/providers")
+async def create_provider(request: Request):
     body = await request.json()
-    if provider not in PROVIDERS:
-        raise HTTPException(400, "未知提供商")
+    pid = (body.get("id") or "").strip()
+    name = (body.get("name") or "").strip()
+    if not pid or not name:
+        raise HTTPException(400, "id 与 name 必填")
+    if db.query_one("SELECT id FROM providers WHERE id=?", (pid,)):
+        raise HTTPException(400, f"供应商 id 已存在: {pid}")
+    ts = db.now()
     db.execute(
-        "INSERT INTO api_keys(provider, api_key, base_url, updated_at) VALUES(?,?,?,?)"
-        " ON CONFLICT(provider) DO UPDATE SET api_key=excluded.api_key,"
-        " base_url=excluded.base_url, updated_at=excluded.updated_at",
-        (provider, body.get("api_key", ""), body.get("base_url") or None, db.now()),
+        "INSERT INTO providers(id, name, protocol, base_url, api_key, created_at, updated_at) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (pid, name, body.get("protocol") or "openai", body.get("base_url") or None,
+         body.get("api_key") or None, ts, ts),
     )
+    return {"ok": True, "id": pid}
+
+
+@app.put("/api/providers/{pid}")
+async def update_provider(pid: str, request: Request):
+    row = db.query_one("SELECT * FROM providers WHERE id=?", (pid,))
+    if not row:
+        raise HTTPException(404, "供应商不存在")
+    body = await request.json()
+    db.execute(
+        "UPDATE providers SET name=?, protocol=?, base_url=?, api_key=?, updated_at=? WHERE id=?",
+        (body.get("name", row["name"]), body.get("protocol", row["protocol"]) or "openai",
+         body.get("base_url", row["base_url"]) or None, body.get("api_key", row["api_key"]),
+         db.now(), pid),
+    )
+    return {"ok": True}
+
+
+@app.delete("/api/providers/{pid}")
+def delete_provider(pid: str):
+    db.execute("DELETE FROM models WHERE provider_id=?", (pid,))
+    db.execute("DELETE FROM providers WHERE id=?", (pid,))
+    return {"ok": True}
+
+
+@app.get("/api/providers/{pid}/models")
+def list_models(pid: str):
+    return [_serialize_model(m) for m in db.query("SELECT * FROM models WHERE provider_id=? ORDER BY id", (pid,))]
+
+
+@app.post("/api/providers/{pid}/models")
+async def create_model(pid: str, request: Request):
+    if not db.query_one("SELECT id FROM providers WHERE id=?", (pid,)):
+        raise HTTPException(404, "供应商不存在")
+    b = await request.json()
+    name = (b.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "模型名称必填")
+    ts = db.now()
+    mid = db.execute(
+        "INSERT INTO models(provider_id, name, cache_hit_input_price, cache_miss_input_price, "
+        "output_price, context_length, temperature, top_p, max_tokens, multimodal, created_at, updated_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        (pid, name, float(b.get("cache_hit_input_price") or 0), float(b.get("cache_miss_input_price") or 0),
+         float(b.get("output_price") or 0), int(b.get("context_length") or 1000000),
+         float(b.get("temperature", 0.7)), float(b.get("top_p", 1.0)), int(b.get("max_tokens", 4096)),
+         int(bool(b.get("multimodal"))), ts, ts),
+    )
+    return {"ok": True, "id": mid}
+
+
+@app.put("/api/models/{mid}")
+async def update_model(mid: int, request: Request):
+    row = db.query_one("SELECT * FROM models WHERE id=?", (mid,))
+    if not row:
+        raise HTTPException(404, "模型不存在")
+    b = await request.json()
+    db.execute(
+        "UPDATE models SET name=?, cache_hit_input_price=?, cache_miss_input_price=?, output_price=?, "
+        "context_length=?, temperature=?, top_p=?, max_tokens=?, multimodal=?, updated_at=? WHERE id=?",
+        (b.get("name", row["name"]), float(b.get("cache_hit_input_price", row["cache_hit_input_price"]) or 0),
+         float(b.get("cache_miss_input_price", row["cache_miss_input_price"]) or 0),
+         float(b.get("output_price", row["output_price"]) or 0),
+         int(b.get("context_length", row["context_length"]) or 1000000),
+         float(b.get("temperature", row["temperature"])), float(b.get("top_p", row["top_p"])),
+         int(b.get("max_tokens", row["max_tokens"])), int(bool(b.get("multimodal", row["multimodal"]))),
+         db.now(), mid),
+    )
+    return {"ok": True}
+
+
+@app.delete("/api/models/{mid}")
+def delete_model(mid: int):
+    db.execute("DELETE FROM models WHERE id=?", (mid,))
     return {"ok": True}
 
 
@@ -94,9 +197,12 @@ def _sanitize(body: dict) -> dict:
     if task not in TASKS:
         raise HTTPException(400, f"未知任务: {task}")
     provider = body.get("provider", "")
-    if provider not in PROVIDERS:
+    if not db.query_one("SELECT id FROM providers WHERE id=?", (provider,)):
         raise HTTPException(400, f"未知提供商: {provider}")
-    model = (body.get("model") or "").strip() or PROVIDERS[provider]["model"]
+    model = (body.get("model") or "").strip()
+    if not model:
+        first = db.query_one("SELECT name FROM models WHERE provider_id=? ORDER BY id LIMIT 1", (provider,))
+        model = first["name"] if first else ""
     if not model:
         raise HTTPException(400, "缺少模型名称")
     mp = {**DEFAULT_MODEL_PARAMS, **(body.get("model_params") or {})}
@@ -257,3 +363,4 @@ def report_page():
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/public", StaticFiles(directory=str(STATIC_DIR / "public")), name="public")
