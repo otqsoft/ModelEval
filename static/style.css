@@ -17,6 +17,18 @@
   --mono: "JetBrains Mono", Consolas, "Courier New", monospace;
 }
 * { box-sizing: border-box; margin: 0; }
+:root { color-scheme: dark; }   /* 原生控件（number 微调钮/下拉/滚动条）按深色渲染，背景透明 */
+
+/* number 输入框右侧上下微调按钮：透明背景，默认隐藏，聚焦时显示 */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  background: transparent;
+  opacity: 0;
+}
+input[type="number"]:focus::-webkit-inner-spin-button,
+input[type="number"]:focus::-webkit-outer-spin-button {
+  opacity: .85;
+}
 body {
   background:
     radial-gradient(1100px 520px at 78% -8%, rgba(0, 212, 255, .07), transparent 62%),
@@ -27,8 +39,8 @@ body {
   min-height: 100vh;
 }
 
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 8px; }
+::-webkit-scrollbar { width: 4px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #2b4d7d; }
 ::-webkit-scrollbar-track { background: transparent; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -47,6 +59,7 @@ nav { display: flex; gap: 4px; }
 .tab { border: none; background: none; padding: 6px 14px; border-radius: 8px; cursor: pointer; color: var(--text2); font-size: 13px; }
 .tab:hover { color: var(--text); }
 .tab.active { background: var(--accent-weak); color: var(--accent); font-weight: 500; }
+#btn-theme { margin-left: auto; font-size: 15px; padding: 4px; border: none; background: none; }
 
 main { padding: 16px 20px 28px; }
 .view { display: none; }
@@ -244,15 +257,74 @@ tr.case-row > td > .hint { display: inline-block; padding: 6px 0; }
 .tbl.inner th, .tbl.inner td { padding: 5px 8px; font-size: 11px; }
 
 /* ---- 面板高度自适应视口 ---- */
-.cols > .panel, .cols-2 > .panel, .cols-3 > .panel,
-#view-providers > .panel, #view-history > .panel, #view-templates > .panel {
+.cols > .panel, .cols-2 > .panel, #view-providers > .panel,
+#view-history > .panel, #view-templates > .panel {
   min-height: calc(100vh - 100px);
 }
+/* 运行页三栏：严格等高（= 视口高度），内容超高时面板内部滚动 */
+.cols-3 > .panel {
+  height: calc(100vh - 100px);
+  display: flex; flex-direction: column;
+}
+.form-panel { overflow-y: auto; }
+.form-panel > * { flex: none; }   /* 防止表单子项被 flex 压缩 */
 .mid-panel { display: flex; flex-direction: column; }
 .mid-panel #cube-stage { flex: 1; height: auto; min-height: 320px; }
 .out-panel { display: flex; flex-direction: column; }
 .out-panel h3 { flex: none; }
 .out-panel .feed { flex: 1; max-height: none; min-height: 0; }
 
-/* ---- 运行页三栏：输出列更高 ---- */
-.out-panel .feed { max-height: none; }
+/* ---- 浅色主题（html[data-theme="light"]，默认深色） ---- */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f8fa;
+  --bg-deep: #eef2f8;
+  --panel: #ffffff;
+  --panel-2: #f1f3f8;
+  --border: #e2e6ee;
+  --border-soft: #eaeef5;
+  --text: #1f2937;
+  --text2: #6b7280;
+  --accent: #3b82f6;
+  --accent-2: #2563eb;
+  --accent-weak: #eff6ff;
+  --ok: #16a34a;
+  --bad: #dc2626;
+  --warn: #d97706;
+}
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(1100px 520px at 78% -8%, rgba(59, 130, 246, .06), transparent 62%),
+    radial-gradient(900px 480px at 8% 108%, rgba(14, 165, 233, .07), transparent 62%),
+    var(--bg);
+}
+:root[data-theme="light"] header {
+  background: linear-gradient(180deg, #ffffff, #f7f8fa);
+  box-shadow: 0 1px 0 rgba(59, 130, 246, .18), 0 6px 18px rgba(15, 23, 42, .06);
+}
+:root[data-theme="light"] .panel {
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .06);
+}
+:root[data-theme="light"] button.primary {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: #fff;
+}
+:root[data-theme="light"] button.primary:hover { color: #fff; }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb { background: #c7d2e3; }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #a9b8d0; }
+:root[data-theme="light"] dialog::backdrop { background: rgba(15, 23, 42, .35); }
+:root[data-theme="light"] #cube-stage {
+  background:
+    radial-gradient(ellipse 60% 42% at 50% 70%, rgba(59, 130, 246, .10), transparent 68%),
+    linear-gradient(rgba(59, 130, 246, .13) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, .13) 1px, transparent 1px),
+    linear-gradient(180deg, #f4f8ff, #e9f0fb);
+  background-size: auto, 44px 44px, 44px 44px, auto;
+}
+:root[data-theme="light"] #cube-stage::after {
+  background: radial-gradient(ellipse, rgba(59, 130, 246, .25), transparent 70%);
+}
+:root[data-theme="light"] .icard pre.reasoning { color: #7c3aed; }
+:root[data-theme="light"] tr.tree-provider td { background: rgba(59, 130, 246, .05); }
+:root[data-theme="light"] .live-dot { background: var(--accent-2); box-shadow: 0 0 8px rgba(59, 130, 246, .6); }

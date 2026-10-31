@@ -3,6 +3,22 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 let providers = [], tasks = [], currentRun = null, es = null;
 
+// ---------- 主题切换（深色默认，localStorage 记忆） ----------
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  const btn = $("#btn-theme");
+  if (btn) {
+    btn.textContent = t === "light" ? "🌙" : "☀️";
+    btn.title = t === "light" ? "切换深色主题" : "切换浅色主题";
+  }
+}
+applyTheme(localStorage.getItem("modeleval-theme") || "dark");
+$("#btn-theme").onclick = () => {
+  const t = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  localStorage.setItem("modeleval-theme", t);
+  applyTheme(t);
+};
+
 // ---------- 通用 ----------
 async function api(url, opts = {}) {
   const r = await fetch(url, { headers: { "Content-Type": "application/json" }, ...opts });

@@ -1,4 +1,5 @@
 /* ModelEval 报告页逻辑 */
+document.documentElement.dataset.theme = localStorage.getItem("modeleval-theme") || "dark";  // 与控制台主题保持一致
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const stopLabel = (r) => ({ solved: "任务成功", max_steps: "步数超限", max_calls: "调用超限", max_tokens: "token超限",

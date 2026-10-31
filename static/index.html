@@ -11,11 +11,12 @@
 <header>
   <div class="brand"><img class="logo" src="/public/logo.png" alt="ModelEval">ModelEval <span class="sub">LLM 评测平台</span></div>
   <nav>
-    <button class="tab active" data-view="run">评测运行</button>
+    <button class="tab active" data-view="run">模型评测</button>
     <button class="tab" data-view="providers">供应商管理</button>
-    <button class="tab" data-view="history">历史与报告</button>
+    <button class="tab" data-view="history">评测报告</button>
     <button class="tab" data-view="templates">配置模板</button>
   </nav>
+  <button id="btn-theme" class="ghost" title="切换主题">☀️</button>
 </header>
 
 <main>
@@ -123,7 +124,7 @@
   <!-- ============ 历史与报告 ============ -->
   <section id="view-history" class="view">
     <div class="panel">
-      <h3>评测历史</h3>
+      <h3>评测报告</h3>
       <table class="tbl" id="runs-table">
         <thead><tr><th>ID</th><th>任务</th><th>模型</th><th>样例</th><th>状态</th><th>成功率</th><th>费用</th><th>创建时间</th><th></th></tr></thead>
         <tbody></tbody>
