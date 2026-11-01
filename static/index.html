@@ -25,6 +25,7 @@
     <div class="cols-3">
       <div class="panel form-panel">
         <h3>评测配置</h3>
+      <div class="form-body">
 
         <div class="group">
           <label>测评任务</label>
@@ -57,14 +58,17 @@
           <div class="hint" id="model-info"></div>
         </div>
 
-        <h4>模型参数</h4>
+        <details class="fold" open>
+          <summary>模型参数</summary>
         <div class="grid3">
           <div class="group"><label>temperature</label><input type="number" id="f-temperature" step="0.1" min="0" max="2" value="0.7"></div>
           <div class="group"><label>top_p</label><input type="number" id="f-top_p" step="0.1" min="0" max="1" value="1.0"></div>
           <div class="group"><label>max_tokens</label><input type="number" id="f-max_tokens" value="4096"></div>
         </div>
+        </details>
 
-        <h4>调度约束</h4>
+        <details class="fold" open>
+          <summary>调度约束</summary>
         <div class="grid3">
           <div class="group"><label>最大调用次数</label><input type="number" id="f-max_calls" value="20"></div>
           <div class="group"><label>累计token上限</label><input type="number" id="f-max_total_tokens" value="200000"></div>
@@ -75,18 +79,24 @@
             <select id="f-tool_enabled"><option value="1" selected>开启</option><option value="0">关闭</option></select>
           </div>
         </div>
+        </details>
 
-        <h4>任务参数（魔方还原）</h4>
+        <details class="fold" open>
+          <summary>任务参数</summary>
         <div class="grid3">
           <div class="group"><label>最大还原步数</label><input type="number" id="f-max_steps" value="50"></div>
           <div class="group"><label>打乱步数</label><input type="number" id="f-scramble_length" value="20"></div>
         </div>
+        </details>
 
-        <h4>运行</h4>
+        <details class="fold" open>
+          <summary>运行</summary>
         <div class="grid3">
           <div class="group"><label>样例数</label><input type="number" id="f-n_cases" value="3" min="1" max="100"></div>
           <div class="group"><label>随机种子 <span class="hint-inline">(空=随机)</span></label><input type="number" id="f-seed" placeholder="自动"></div>
         </div>
+        </details>
+      </div><!-- /form-body -->
 
         <div class="actions">
           <button id="btn-start" class="primary">开始评测</button>
