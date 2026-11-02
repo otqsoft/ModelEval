@@ -734,6 +734,7 @@ function setSendBtn(stopping) {
   $("#chat-send").classList.toggle("stopping", stopping);
   $("#chat-send").title = stopping ? "停止回复" : "发送";
   $("#chat-send").innerHTML = stopping ? STOP_ICON : SEND_ICON;
+  syncChatSend();
 }
 
 // ---------- 会话持久化（localStorage，刷新后自动恢复） ----------
@@ -891,6 +892,7 @@ async function sendChat() {
   pushChat({ role: "user", content: text });
   appendChatBubble("user", text);
   $("#chat-input").value = "";
+  syncChatSend();
 
   const asst = appendChatBubble("assistant", "", model);
   const preC = asst.querySelector(".chat-content");
@@ -975,10 +977,16 @@ async function stopChat() {
   if (chatAbort) chatAbort.abort();   // 前端立即断开流，按钮恢复
 }
 
+function syncChatSend() {
+  $("#chat-send").disabled = !$("#chat-input").value.trim() || chatBusy;
+}
+
 $("#chat-send").onclick = () => chatBusy ? stopChat() : sendChat();
+$("#chat-input").addEventListener("input", syncChatSend);
 $("#chat-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); }
 });
+syncChatSend();   // 初始输入为空，发送按钮默认置灰
 
 restoreChat();   // 恢复上次会话记录
 init().catch((e) => alert("初始化失败: " + e.message));

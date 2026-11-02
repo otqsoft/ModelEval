@@ -46,7 +46,7 @@ body {
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 header {
-  display: flex; align-items: center; gap: 24px; padding: 10px 20px;
+  display: flex; align-items: center; gap: 16px; padding: 10px 20px;
   background: linear-gradient(180deg, #0d1a30, #0a1628);
   border-bottom: 1px solid var(--border);
   box-shadow: 0 1px 0 rgba(0, 212, 255, .12), 0 8px 24px rgba(0, 0, 0, .35);
@@ -120,6 +120,11 @@ nav { display: flex; gap: 4px; }
 }
 #chat-send.stopping { background: var(--bad); }
 #chat-send.stopping:hover { opacity: .9; color: #fff; }
+/* 无可发送内容时置灰（实底灰而非蓝底降透明度） */
+#chat-send:disabled { background: #a9b6c9; color: #f4f7fb; opacity: 1; }
+#chat-send:disabled:hover { border: none; color: #f4f7fb; }
+:root[data-theme="light"] #chat-send:disabled { background: #d7dce4; color: #97a1b0; }
+:root[data-theme="light"] #chat-send:disabled:hover { color: #97a1b0; }
 .chat-who { font-size: 11px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
 
 /* ---- 会话 Markdown 渲染 ---- */
@@ -207,7 +212,7 @@ button {
 }
 button:hover { border-color: var(--accent); color: var(--accent); }
 button.primary {
-  background: linear-gradient(135deg, #3b82f6, #3b82f6);
+  background: linear-gradient(135deg, #175be0, #1d63ed);
   border: none; color: #ffffff; font-weight: 600;
   box-shadow: 0 4px 16px rgba(0, 212, 255, .25);
 }
@@ -425,7 +430,7 @@ tr.case-row > td > .hint { display: inline-block; padding: 6px 0; }
   box-shadow: 0 8px 24px rgba(15, 23, 42, .06);
 }
 :root[data-theme="light"] button.primary {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  background: linear-gradient(135deg, #175be0, #1d63ed);
   color: #fff;
 }
 :root[data-theme="light"] button.primary:hover { color: #fff; }
