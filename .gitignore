@@ -2,6 +2,10 @@
 bin-debug/
 bin-release/
 .workbuddy/
+.trae-html-share-packages/
+.screenshots/
+.playwright-cli/
+
 [Oo]bj/
 [Bb]in/
 

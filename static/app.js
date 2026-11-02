@@ -926,6 +926,7 @@ async function sendChat() {
         let msg; try { msg = JSON.parse(line.slice(5)); } catch { continue; }
         if (msg.type === "chat_delta") {
           if (msg.payload.field === "content") {
+            if (!content) rdDet.open = false;   // 正文开始，自动折叠思考链
             content += msg.payload.text;
             preC.innerHTML = mdToHtml(content);   // 流式过程中实时按 Markdown 重渲染
           } else if (msg.payload.field === "reasoning") {
@@ -933,9 +934,11 @@ async function sendChat() {
             reasoning += msg.payload.text;
             preR.textContent = reasoning;
             if (first) { rdDet.style.display = ""; rdDet.open = true; }
+            preR.scrollTop = preR.scrollHeight;   // 思考链光标跟随输出到末尾
           }
           scrollChat();
         } else if (msg.type === "chat_done") {
+          if (reasoning) rdDet.open = false;   // 回复结束折叠思考链
           const u = msg.payload.usage || {};
           meta.textContent = `token ↑${u.prompt_tokens ?? "-"} ↓${u.completion_tokens ?? "-"}`
             + (u.reasoning_tokens ? `（思考 ${u.reasoning_tokens}）` : "")
