@@ -721,4 +721,261 @@ function renderLbTable(rows) {
   </tr>`).join("");
 }
 
+// ---------- 模型会话抽屉 ----------
+let chatHistory = [];   // {role, content}
+let chatBusy = false;
+let chatAbort = null;   // AbortController：前端断开 SSE
+let chatId = null;      // 当前会话请求 ID（后端据此中断生成）
+
+const SEND_ICON = $("#chat-send").innerHTML;
+const STOP_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
+
+function setSendBtn(stopping) {
+  $("#chat-send").classList.toggle("stopping", stopping);
+  $("#chat-send").title = stopping ? "停止回复" : "发送";
+  $("#chat-send").innerHTML = stopping ? STOP_ICON : SEND_ICON;
+}
+
+// ---------- 会话持久化（localStorage，刷新后自动恢复） ----------
+const CHAT_STORE_KEY = "modeleval-chat";
+
+function saveChat() {
+  try {
+    let data = JSON.stringify(chatHistory);
+    if (data.length > 400000) {   // 超出容量上限时截断最旧的一半，避免撑爆 localStorage
+      chatHistory = chatHistory.slice(Math.floor(chatHistory.length / 2));
+      data = JSON.stringify(chatHistory);
+    }
+    localStorage.setItem(CHAT_STORE_KEY, data);
+  } catch {}
+}
+
+function pushChat(m) { chatHistory.push(m); saveChat(); }
+
+function restoreChat() {
+  try { chatHistory = JSON.parse(localStorage.getItem(CHAT_STORE_KEY) || "[]") || []; }
+  catch { chatHistory = []; }
+  if (!Array.isArray(chatHistory)) chatHistory = [];
+  chatHistory = chatHistory.filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string");
+  for (const m of chatHistory) appendChatBubble(m.role, m.content, m.who, m.reasoning);
+  if (chatHistory.length) { const box = $("#chat-msgs"); box.scrollTop = box.scrollHeight; }
+}
+
+function renderChatModelOptions() {
+  const sel = $("#chat-model");
+  const groups = providers.filter((p) => p.has_key && (p.models || []).length);
+  sel.innerHTML = groups.map((p) =>
+    `<optgroup label="${esc(p.name)}（${p.protocol === "anthropic" ? "Anthropic" : "OpenAI"}）">`
+    + p.models.map((m) => `<option value="${p.id}|${esc(m.name)}">${esc(m.name)}</option>`).join("")
+    + `</optgroup>`).join("")
+    || `<option value="">无可用模型（需先配置 API Key 与模型）</option>`;
+}
+
+$("#btn-chat").onclick = () => {
+  renderChatModelOptions();
+  $("#chat-drawer").classList.add("open");
+};
+$("#chat-close").onclick = () => $("#chat-drawer").classList.remove("open");
+$("#chat-clear").onclick = () => {
+  if (chatHistory.length && !confirm("确认清空当前会话的全部消息？（清空后不可恢复）")) return;
+  chatHistory = [];
+  saveChat();
+  $("#chat-msgs").innerHTML = `<div class="empty">会话已清空，选择模型开始对话</div>`;
+};
+
+const scrollChat = () => { const m = $("#chat-msgs"); m.scrollTop = m.scrollHeight; };
+
+// ---------- 轻量 Markdown 渲染（零依赖：标题/列表/表格/代码块/引用/加粗/斜体/行内代码/链接/删除线） ----------
+function mdInline(s) {
+  return s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/__([^_]+)__/g, "<b>$1</b>")
+    .replace(/\*([^*\n]+)\*/g, "<i>$1</i>")
+    .replace(/~~([^~]+)~~/g, "<s>$1</s>")
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+
+function mdToHtml(src) {
+  const lines = esc(src).replace(/\r/g, "").split("\n");
+  const out = [];
+  let code = null;       // 代码块行缓冲（``` 围栏）
+  let list = null;       // "ul" | "ol"
+  let para = [];         // 段落行缓冲
+  let table = null;      // {head, rows}
+
+  const closePara = () => { if (para.length) { out.push("<p>" + mdInline(para.join("<br>")) + "</p>"); para = []; } };
+  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  const closeTable = () => {
+    if (!table) return;
+    out.push("<table><thead><tr>" + table.head.map((c) => `<th>${mdInline(c)}</th>`).join("") + "</tr></thead><tbody>"
+      + table.rows.map((r) => "<tr>" + r.map((c) => `<td>${mdInline(c)}</td>`).join("") + "</tr>").join("") + "</tbody></table>");
+    table = null;
+  };
+  const closeAll = () => { closePara(); closeList(); closeTable(); };
+
+  for (const line of lines) {
+    const t = line.trim();
+    if (/^```/.test(t)) {
+      closeAll();
+      if (code === null) code = [];
+      else { out.push(`<pre class="md-code"><code>${code.join("\n")}</code></pre>`); code = null; }
+      continue;
+    }
+    if (code !== null) { code.push(line); continue; }
+    if (!t) { closeAll(); continue; }
+
+    const h = t.match(/^(#{1,6})\s+(.+)$/);
+    if (h) {
+      closeAll();
+      const lv = [3, 4, 5, 6, 6, 6][h[1].length - 1];
+      out.push(`<h${lv} class="md-h">${mdInline(h[2])}</h${lv}>`);
+      continue;
+    }
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(t)) { closeAll(); out.push('<hr class="md-hr">'); continue; }
+
+    const bq = t.match(/^&gt;\s?(.*)$/);   // esc 已把 ">" 转为 &gt;
+    if (bq) { closeAll(); out.push(`<blockquote>${mdInline(bq[1])}</blockquote>`); continue; }
+
+    const ul = t.match(/^[-*+]\s+(.+)$/);
+    const ol = t.match(/^\d+[.)]\s+(.+)$/);
+    if (ul || ol) {
+      closePara(); closeTable();
+      const want = ul ? "ul" : "ol";
+      if (list !== want) { closeList(); out.push(`<${want}>`); list = want; }
+      out.push(`<li>${mdInline((ul || ol)[1])}</li>`);
+      continue;
+    }
+
+    if (/^\|.+\|$/.test(t)) {
+      const cells = t.slice(1, -1).split("|").map((c) => c.trim());
+      const isSep = cells.length && cells.every((c) => /^:?-+:?$/.test(c));
+      if (table && isSep) continue;                 // 表头下的分隔行
+      if (table) { table.rows.push(cells); continue; }
+      table = { head: cells, rows: [] };            // 视为表头
+      continue;
+    }
+
+    closeTable();
+    para.push(t);
+  }
+  closeAll();
+  if (code !== null) out.push(`<pre class="md-code"><code>${code.join("\n")}</code></pre>`);
+  return out.join("");
+}
+
+function appendChatBubble(role, text, who, reasoning) {
+  const d = document.createElement("div");
+  d.className = "chat-msg " + role;
+  if (role === "assistant") {
+    d.innerHTML = `<div class="chat-who">${esc(who || "")}</div>
+      <details class="chat-rd"${reasoning ? "" : ' style="display:none"'}><summary>思考链</summary><pre class="chat-reasoning"></pre></details>
+      <div class="chat-content"></div><div class="chat-meta"></div>`;
+    d.querySelector(".chat-content").innerHTML = mdToHtml(text);
+    if (reasoning) d.querySelector(".chat-reasoning").textContent = reasoning;
+  } else {
+    d.innerHTML = `<pre class="chat-content"></pre>`;
+    d.querySelector(".chat-content").textContent = text;
+  }
+  $("#chat-msgs").appendChild(d);
+  scrollChat();
+  return d;
+}
+
+async function sendChat() {
+  const text = $("#chat-input").value.trim();
+  if (!text || chatBusy) return;
+  const val = $("#chat-model").value;
+  if (!val || !val.includes("|")) return alert("无可用模型：请先在「供应商管理」为供应商配置 API Key 并添加模型");
+  const [provider, model] = val.split("|");
+  pushChat({ role: "user", content: text });
+  appendChatBubble("user", text);
+  $("#chat-input").value = "";
+
+  const asst = appendChatBubble("assistant", "", model);
+  const preC = asst.querySelector(".chat-content");
+  const preR = asst.querySelector(".chat-reasoning");
+  const rdDet = asst.querySelector(".chat-rd");
+  const meta = asst.querySelector(".chat-meta");
+  chatBusy = true;
+  chatAbort = new AbortController();
+  chatId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  setSendBtn(true);
+  let content = "", reasoning = "", stopped = false;
+
+  try {
+    const r = await fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, model, chat_id: chatId,
+        messages: chatHistory.map((m) => ({ role: m.role, content: m.content })) }),   // 剔除 who 等前端字段
+      signal: chatAbort.signal,
+    });
+    if (!r.ok) throw new Error((await r.text()).slice(0, 200));
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, i).trim();
+        buf = buf.slice(i + 2);
+        if (!line.startsWith("data:")) continue;
+        let msg; try { msg = JSON.parse(line.slice(5)); } catch { continue; }
+        if (msg.type === "chat_delta") {
+          if (msg.payload.field === "content") {
+            content += msg.payload.text;
+            preC.innerHTML = mdToHtml(content);   // 流式过程中实时按 Markdown 重渲染
+          } else if (msg.payload.field === "reasoning") {
+            const first = !reasoning;
+            reasoning += msg.payload.text;
+            preR.textContent = reasoning;
+            if (first) { rdDet.style.display = ""; rdDet.open = true; }
+          }
+          scrollChat();
+        } else if (msg.type === "chat_done") {
+          const u = msg.payload.usage || {};
+          meta.textContent = `token ↑${u.prompt_tokens ?? "-"} ↓${u.completion_tokens ?? "-"}`
+            + (u.reasoning_tokens ? `（思考 ${u.reasoning_tokens}）` : "")
+            + ` ｜ ${((msg.payload.latency_ms || 0) / 1000).toFixed(1)}s ｜ finish=${msg.payload.finish_reason || "-"}`;
+        } else if (msg.type === "chat_stopped") {
+          stopped = true;
+          meta.innerHTML = `<span style="color:var(--warn)">⏹ 已停止</span>`;
+        } else if (msg.type === "chat_error") {
+          meta.innerHTML = `<span style="color:var(--bad)">❌ ${esc(msg.payload.error)}</span>`;
+        }
+      }
+    }
+    // 正常结束（含后端终止）：保留已有内容进上下文，便于继续追问
+    if (content) pushChat({ role: "assistant", content, who: model, reasoning });
+    else if (!stopped) pushChat({ role: "assistant", content: "（无回复内容）", who: model });
+  } catch (e) {
+    if (e.name === "AbortError") {
+      meta.innerHTML = `<span style="color:var(--warn)">⏹ 已停止</span>`;
+      if (content) pushChat({ role: "assistant", content, who: model, reasoning });
+    } else {
+      meta.innerHTML = `<span style="color:var(--bad)">❌ ${esc(e.message)}</span>`;
+    }
+  } finally {
+    chatBusy = false;
+    chatAbort = null;
+    setSendBtn(false);
+    scrollChat();
+  }
+}
+
+async function stopChat() {
+  if (!chatBusy) return;
+  try { await api(`/api/chat/stop/${chatId}`, { method: "POST" }); } catch {}   // 通知后端中断生成
+  if (chatAbort) chatAbort.abort();   // 前端立即断开流，按钮恢复
+}
+
+$("#chat-send").onclick = () => chatBusy ? stopChat() : sendChat();
+$("#chat-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+
+restoreChat();   // 恢复上次会话记录
 init().catch((e) => alert("初始化失败: " + e.message));

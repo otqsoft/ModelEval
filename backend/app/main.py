@@ -1,7 +1,10 @@
 """FastAPI 服务：REST API + SSE 实时事件流 + 静态页面托管。"""
 import asyncio
 import json
+import queue
 import random
+import threading
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -10,7 +13,15 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db, report
 from .engine import engine as eval_engine
+from .gateway import AnthropicGateway, GatewayError, OpenAICompatGateway
 from .config import DEFAULT_LIMITS, DEFAULT_MODEL_PARAMS, RUN_TERMINAL_STATUS, TASKS
+
+# 活跃会话：cid -> {"stop": threading.Event}，用于中断流式回复生成
+CHAT_SESSIONS = {}
+
+
+class ChatStopped(Exception):
+    """用户主动终止会话回复（经 on_event 抛出，穿透流式循环）。"""
 
 STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "static"
 app = FastAPI(title="ModelEval 模型评测平台")
@@ -409,6 +420,96 @@ def model_leaderboard():
                            + r["speed_score"] + r["cost_score"], 1)
     rows.sort(key=lambda x: -x["score"])
     return rows
+
+
+# ---------- 模型会话（右侧抽屉，流式输出） ----------
+
+@app.post("/api/chat")
+async def chat(request: Request):
+    """模型会话：SSE 流式转发。复用网关层（openai/anthropic 协议），仅允许已配置 API Key 的供应商。
+
+    事件：chat_delta {field: content|reasoning, text} → chat_done {usage, latency_ms, finish_reason}
+          → chat_error {error} → chat_close。
+    """
+    body = await request.json()
+    pid = (body.get("provider") or "").strip()
+    row = db.query_one("SELECT * FROM providers WHERE id=?", (pid,))
+    if not row:
+        raise HTTPException(400, f"未知提供商: {pid}")
+    if not row["api_key"]:
+        raise HTTPException(400, f"提供商 {pid} 未配置 API Key")
+    model = (body.get("model") or "").strip()
+    if not model:
+        raise HTTPException(400, "缺少模型名称")
+    messages = body.get("messages") or []
+    if not messages:
+        raise HTTPException(400, "缺少会话消息")
+
+    # 参数默认取该模型配置，允许请求体覆盖
+    mrow = db.query_one(
+        "SELECT temperature, top_p, max_tokens FROM models WHERE provider_id=? AND name=?", (pid, model))
+    mp = dict(DEFAULT_MODEL_PARAMS)
+    if mrow:
+        mp = {"temperature": mrow["temperature"], "top_p": mrow["top_p"], "max_tokens": mrow["max_tokens"]}
+    mp.update(body.get("model_params") or {})
+
+    cid = body.get("chat_id") or uuid.uuid4().hex
+    ses = CHAT_SESSIONS[cid] = {"stop": threading.Event()}
+    q: queue.Queue = queue.Queue()
+
+    def on_event(t, p):
+        if ses["stop"].is_set():
+            raise ChatStopped()   # 在流式循环内抛出，立即中断后续生成
+        q.put({"type": t, "payload": p})
+
+    common = dict(provider=pid, model=model, api_key=row["api_key"],
+                  base_url=row["base_url"] or None, model_params=mp,
+                  on_event=on_event, timeout=120, retry=1)
+    gw = AnthropicGateway(**common) if (row["protocol"] or "openai") == "anthropic" else OpenAICompatGateway(**common)
+
+    def run():
+        try:
+            resp = gw.chat(messages)
+            q.put({"type": "chat_done", "payload": {
+                "content": resp.get("content"), "usage": resp.get("usage"),
+                "latency_ms": resp.get("latency_ms"), "finish_reason": resp.get("finish_reason")}})
+        except GatewayError as e:
+            if isinstance(getattr(e, "__cause__", None), ChatStopped):
+                q.put({"type": "chat_stopped", "payload": {}})
+            else:
+                q.put({"type": "chat_error", "payload": {"error": str(e)}})
+        except Exception as e:
+            q.put({"type": "chat_error", "payload": {"error": f"{type(e).__name__}: {e}"}})
+        q.put(None)   # 结束哨兵
+        CHAT_SESSIONS.pop(cid, None)
+
+    threading.Thread(target=run, daemon=True).start()
+
+    def gen():
+        while True:
+            ev = q.get()
+            if ev is None:
+                break
+            t = ev["type"]
+            if t == "llm_delta":
+                ev["type"] = "chat_delta"
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+            elif t in ("chat_done", "chat_error", "chat_stopped"):
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        yield 'data: {"type": "chat_close"}\n\n'
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/chat/stop/{cid}")
+def stop_chat(cid: str):
+    """终止指定会话的流式回复生成。"""
+    ses = CHAT_SESSIONS.get(cid)
+    if not ses:
+        return {"ok": False, "detail": "会话不存在或已结束"}
+    ses["stop"].set()
+    return {"ok": True}
 
 
 # ---------- 静态页面 ----------

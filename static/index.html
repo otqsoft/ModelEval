@@ -17,6 +17,7 @@
     <button class="tab" data-view="history">评测报告</button>
     <button class="tab" data-view="templates">配置模板</button>
   </nav>
+  <button id="btn-chat" class="ghost" title="模型会话">💬</button>
   <button id="btn-theme" class="ghost" title="切换主题">☀️</button>
 </header>
 
@@ -248,6 +249,27 @@
   </dialog>
 
 </main>
+
+<!-- ============ 模型会话抽屉 ============ -->
+<aside id="chat-drawer">
+  <div class="chat-head">
+    <h3>模型会话</h3>
+    <select id="chat-model"></select>
+    <button id="chat-clear" class="ghost" title="清空会话">🗑</button>
+    <button id="chat-close" class="ghost" title="关闭">✕</button>
+  </div>
+  <div id="chat-msgs"></div>
+  <div class="chat-foot">
+    <div class="chat-input-group">
+      <textarea id="chat-input" rows="3" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+      <button id="chat-send" class="primary" title="发送">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M3.4 20.4l17.4-7.5c.8-.4.8-1.5 0-1.9L3.4 3.6c-.7-.3-1.5.3-1.3 1.1L3.9 10c.1.4.5.7.9.8l9.2 1.2-9.2 1.2c-.4.1-.8.4-.9.8l-1.8 5.3c-.2.8.6 1.4 1.3 1.1z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</aside>
 
 <script src="/static/cube3d.js"></script>
 <script src="/static/app.js"></script>
