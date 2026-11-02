@@ -268,9 +268,21 @@ tr.case-row > td > .hint { display: inline-block; padding: 6px 0; }
 
 /* ---- 面板高度自适应视口 ---- */
 .cols > .panel, .cols-2 > .panel, #view-providers > .panel,
-#view-history > .panel, #view-templates > .panel {
+#view-history > .panel, #view-templates > .panel, #view-leaderboard > .panel {
   min-height: calc(100vh - 100px);
 }
+
+/* ---- 模型排行页 ---- */
+.subpanel {
+  border: 1px solid var(--border); border-radius: 12px; padding: 14px;
+  background: linear-gradient(180deg, rgba(0, 212, 255, .02), transparent 55%), var(--panel-2);
+  min-width: 0;
+}
+.legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; justify-content: center; }
+.legend-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2); }
+.legend-chip i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+#lb-score-bars { padding-top: 4px; }
+#lb-radar { display: block; margin: 0 auto; }
 /* 运行页三栏：严格等高（= 视口高度），内容超高时面板内部滚动 */
 .cols-3 > .panel {
   height: calc(100vh - 100px);

@@ -13,6 +13,7 @@
   <nav>
     <button class="tab active" data-view="run">模型评测</button>
     <button class="tab" data-view="providers">供应商管理</button>
+    <button class="tab" data-view="leaderboard">模型排行</button>
     <button class="tab" data-view="history">评测报告</button>
     <button class="tab" data-view="templates">配置模板</button>
   </nav>
@@ -166,6 +167,36 @@
         </tr></thead>
         <tbody></tbody>
       </table>
+    </div>
+  </section>
+
+  <!-- ============ 模型排行 ============ -->
+  <section id="view-leaderboard" class="view">
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h3>模型排行</h3>
+        <label class="hint-inline"><input type="checkbox" id="lb-exclude-mock" style="width:auto;vertical-align:-2px"> 排除 Mock</label>
+      </div>
+      <div id="lb-cards" class="cards"></div>
+      <div class="two-col">
+        <div class="subpanel">
+          <h3 style="font-size:13px;margin-bottom:10px">能力雷达（Top 5 · 满分 100）</h3>
+          <canvas id="lb-radar"></canvas>
+          <div id="lb-legend" class="legend"></div>
+        </div>
+        <div class="subpanel">
+          <h3 style="font-size:13px;margin-bottom:10px">综合评分（成功率 60 + 调用/token/速度/费用 各 10）</h3>
+          <div id="lb-score-bars"></div>
+        </div>
+      </div>
+      <div class="subpanel" style="margin-top:14px">
+        <h3 style="font-size:13px;margin-bottom:10px">排行明细</h3>
+        <table class="tbl" id="lb-table">
+          <thead><tr><th>排名</th><th>模型</th><th>评测次数</th><th>样例数</th><th>成功率</th><th>平均调用</th>
+            <th>平均步数</th><th>平均token</th><th>平均耗时</th><th>平均费用(元)</th><th>综合评分</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
   </section>
 

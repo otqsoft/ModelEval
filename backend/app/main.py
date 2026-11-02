@@ -350,6 +350,67 @@ def export_jsonl(run_id: int):
                              headers={"Content-Disposition": f"attachment; filename=run{run_id}_interactions.jsonl"})
 
 
+# ---------- 模型排行 ----------
+
+@app.get("/api/leaderboard")
+def model_leaderboard():
+    """按 (provider, model) 聚合全部已完成评测的 summary，输出多维度排行。"""
+    runs = db.query("SELECT provider, model, summary FROM runs"
+                    " WHERE status IN ('finished','stopped') AND summary IS NOT NULL")
+    groups = {}
+    for r in runs:
+        try:
+            s = json.loads(r["summary"])
+        except Exception:
+            continue
+        g = s.get("generic") or {}
+        if not g.get("total"):
+            continue
+        key = (r["provider"], r["model"])
+        a = groups.setdefault(key, {"runs": 0, "cases": 0, "solved": 0, "calls": 0,
+                                    "moves": 0, "tokens": 0, "latency": 0, "cost": 0.0})
+        a["runs"] += 1
+        a["cases"] += g["total"]
+        a["solved"] += g.get("solved", 0)
+        a["calls"] += g.get("total_calls", 0)
+        a["moves"] += (s.get("task_metrics") or {}).get("moves_used", 0) * g["total"]
+        t = g.get("tokens") or {}
+        a["tokens"] += t.get("total", 0)
+        a["latency"] += g.get("avg_latency_ms", 0) * g["total"]
+        a["cost"] += (g.get("cost") or {}).get("total", 0) or 0
+
+    rows = []
+    for (provider, model), a in groups.items():
+        cases = a["cases"] or 1
+        rows.append({
+            "provider": provider, "model": model, "runs": a["runs"], "cases": a["cases"],
+            "success_rate": round(a["solved"] / cases, 4),
+            "avg_calls": round(a["calls"] / cases, 2),
+            "avg_moves": round(a["moves"] / cases, 1),
+            "avg_tokens": round(a["tokens"] / cases, 1),
+            "avg_latency_ms": round(a["latency"] / cases, 1),
+            "avg_cost": round(a["cost"] / cases, 6),
+        })
+
+    def best(key):
+        vals = [x[key] for x in rows if x[key] > 0]
+        return min(vals) if vals else None
+
+    b_calls, b_tokens = best("avg_calls"), best("avg_tokens")
+    b_lat, b_cost = best("avg_latency_ms"), best("avg_cost")
+    for r in rows:
+        comp = lambda v, b: round(b / v * 10, 1) if (b and v > 0) else 0.0
+        r["sr_score"] = round(r["success_rate"] * 60, 1)
+        r["calls_score"] = comp(r["avg_calls"], b_calls)
+        r["token_score"] = comp(r["avg_tokens"], b_tokens)
+        r["speed_score"] = comp(r["avg_latency_ms"], b_lat)
+        r["cost_score"] = comp(r["avg_cost"], b_cost)
+        r["score"] = round(r["sr_score"] + r["calls_score"] + r["token_score"]
+                           + r["speed_score"] + r["cost_score"], 1)
+    rows.sort(key=lambda x: -x["score"])
+    return rows
+
+
 # ---------- 静态页面 ----------
 
 @app.get("/")

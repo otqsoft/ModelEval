@@ -11,6 +11,7 @@ function applyTheme(t) {
     btn.textContent = t === "light" ? "🌙" : "☀️";
     btn.title = t === "light" ? "切换深色主题" : "切换浅色主题";
   }
+  window.dispatchEvent(new CustomEvent("themechange", { detail: t }));
 }
 applyTheme(localStorage.getItem("modeleval-theme") || "dark");
 $("#btn-theme").onclick = () => {
@@ -38,6 +39,7 @@ $$(".tab").forEach((t) => t.onclick = () => {
   if (t.dataset.view === "history") loadRuns();
   if (t.dataset.view === "templates") loadTemplates();
   if (t.dataset.view === "providers") loadProvidersAdmin();
+  if (t.dataset.view === "leaderboard") loadLeaderboard();
 });
 
 // ---------- 初始化 ----------
@@ -579,5 +581,144 @@ window.delModel = async (id) => {
   await api(`/api/models/${id}`, { method: "DELETE" });
   loadProvidersAdmin();
 };
+
+// ---------- 模型排行 ----------
+let lbRows = null;   // 排行榜原始数据缓存
+const LB_DIMS = ["成功率", "调用效率", "token效率", "速度", "费用效率"];
+const LB_COLORS = ["#00d4ff", "#fbbf24", "#34d399", "#f472b6", "#a78bfa", "#fb923c", "#4ade80"];
+
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+$("#lb-exclude-mock").onchange = () => renderLeaderboard();
+
+window.addEventListener("themechange", () => { if ($("#view-leaderboard").classList.contains("active")) renderLeaderboard(); });
+
+async function loadLeaderboard() {
+  try {
+    lbRows = await api("/api/leaderboard");
+    renderLeaderboard();
+  } catch (e) {
+    $("#lb-cards").innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+function renderLeaderboard() {
+  const excludeMock = $("#lb-exclude-mock").checked;
+  const rows = (lbRows || []).filter((r) => !excludeMock || r.provider !== "mock");
+  if (!rows.length) {
+    $("#lb-cards").innerHTML = "";
+    $("#lb-radar").replaceWith(Object.assign(document.createElement("canvas"), { id: "lb-radar" }));
+    $("#lb-legend").innerHTML = "";
+    $("#lb-score-bars").innerHTML = "";
+    $("#lb-table tbody").innerHTML = `<tr><td colspan="11" class="empty">暂无评测数据，先去「模型评测」页跑几轮吧</td></tr>`;
+    return;
+  }
+
+  // 概览卡片
+  const best = rows[0];
+  const totalRuns = rows.reduce((s, r) => s + r.runs, 0);
+  const totalCost = rows.reduce((s, r) => s + (r.total_cost || 0), 0);
+  const bestSr = Math.max(...rows.map((r) => r.success_rate));
+  $("#lb-cards").innerHTML = [
+    card("参评模型", rows.length + " 个"),
+    card("累计评测", totalRuns + " 轮"),
+    card("累计费用", "¥" + totalCost.toFixed(4)),
+    card("最佳成功率", (bestSr * 100).toFixed(0) + "%"),
+    card("榜首模型", `${esc(best.provider)}/${esc(best.model)}`),
+    card("榜首评分", best.score.toFixed(1)),
+  ].join("");
+
+  renderRadar(rows.slice(0, 5));
+  renderScoreBars(rows);
+  renderLbTable(rows);
+}
+
+function card(k, v) {
+  return `<div class="card"><div class="v">${v}</div><div class="k">${k}</div></div>`;
+}
+
+/* 五维雷达图（Top 5，纯 canvas 手绘，主题自适应） */
+function renderRadar(top5) {
+  const canvas = $("#lb-radar");
+  const size = 320, dpr = window.devicePixelRatio || 1;
+  canvas.width = size * dpr; canvas.height = size * dpr;
+  canvas.style.width = "100%"; canvas.style.maxWidth = size + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+
+  const cx = size / 2, cy = size / 2 + 6, R = size / 2 - 46;
+  const grid = cssVar("--border") || "#1e3a5f";
+  const text2 = cssVar("--text2") || "#7c93b5";
+
+  ctx.clearRect(0, 0, size, size);
+
+  // 背景网格：5 层五边形
+  for (let ring = 1; ring <= 5; ring++) {
+    ctx.beginPath();
+    for (let i = 0; i <= 5; i++) {
+      const ang = -Math.PI / 2 + i * 2 * Math.PI / 5;
+      const x = cx + Math.cos(ang) * R * ring / 5, y = cy + Math.sin(ang) * R * ring / 5;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.strokeStyle = grid; ctx.lineWidth = ring === 5 ? 1 : 0.5; ctx.stroke();
+  }
+  // 轴线与维度标签
+  ctx.font = "11px sans-serif"; ctx.fillStyle = text2;
+  for (let i = 0; i < 5; i++) {
+    const ang = -Math.PI / 2 + i * 2 * Math.PI / 5;
+    ctx.beginPath(); ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(ang) * R, cy + Math.sin(ang) * R);
+    ctx.strokeStyle = grid; ctx.lineWidth = 0.5; ctx.stroke();
+    const lx = cx + Math.cos(ang) * (R + 20), ly = cy + Math.sin(ang) * (R + 16);
+    ctx.textAlign = Math.abs(Math.cos(ang)) < .3 ? "center" : (Math.cos(ang) > 0 ? "left" : "right");
+    ctx.textBaseline = "middle";
+    ctx.fillText(LB_DIMS[i], lx, ly);
+  }
+  // 每个模型的多边形（维度值 = 成功率*100 / 各 score*10，均为 0~100）
+  top5.forEach((r, idx) => {
+    const vals = [r.success_rate * 100, r.calls_score * 10, r.token_score * 10, r.speed_score * 10, r.cost_score * 10];
+    ctx.beginPath();
+    vals.forEach((v, i) => {
+      const ang = -Math.PI / 2 + i * 2 * Math.PI / 5;
+      const x = cx + Math.cos(ang) * R * Math.max(0, Math.min(100, v)) / 100;
+      const y = cy + Math.sin(ang) * R * Math.max(0, Math.min(100, v)) / 100;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.closePath();
+    ctx.globalAlpha = .16; ctx.fillStyle = LB_COLORS[idx % LB_COLORS.length]; ctx.fill();
+    ctx.globalAlpha = 1; ctx.strokeStyle = LB_COLORS[idx % LB_COLORS.length]; ctx.lineWidth = 1.6; ctx.stroke();
+  });
+  // 图例
+  $("#lb-legend").innerHTML = top5.map((r, idx) =>
+    `<span class="legend-chip"><i style="background:${LB_COLORS[idx % LB_COLORS.length]}"></i>${esc(r.provider)}/${esc(r.model)}</span>`
+  ).join("");
+}
+
+/* 综合评分条形排行 */
+function renderScoreBars(rows) {
+  $("#lb-score-bars").innerHTML = rows.map((r, idx) => {
+    const w = Math.max(2, r.score);
+    return `<div class="bar-row">
+      <span style="width:26px;font-family:var(--mono)">${idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : idx + 1}</span>
+      <span style="width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.provider)}/${esc(r.model)}">${esc(r.provider)}/${esc(r.model)}</span>
+      <span class="bar" style="flex:1"><i style="width:${w}%;background:${LB_COLORS[idx % LB_COLORS.length]};opacity:.75"></i></span>
+      <span style="width:44px;text-align:right;font-family:var(--mono)">${r.score.toFixed(1)}</span>
+    </div>`;
+  }).join("");
+}
+
+/* 排行明细表 */
+function renderLbTable(rows) {
+  $("#lb-table tbody").innerHTML = rows.map((r, idx) => `<tr>
+    <td>${idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : idx + 1}</td>
+    <td><b>${esc(r.provider)}/${esc(r.model)}</b></td>
+    <td>${r.runs}</td><td>${r.cases}</td>
+    <td style="color:${r.success_rate >= .8 ? "var(--ok)" : r.success_rate >= .5 ? "var(--warn)" : "var(--bad)"}">${(r.success_rate * 100).toFixed(1)}%</td>
+    <td>${r.avg_calls.toFixed(1)}</td><td>${r.avg_moves.toFixed(1)}</td>
+    <td>${Math.round(r.avg_tokens).toLocaleString()}</td><td>${fmtDur(r.avg_latency_ms)}</td>
+    <td>${r.avg_cost > 0 ? r.avg_cost.toFixed(4) : "—"}</td>
+    <td><b style="color:${LB_COLORS[idx % LB_COLORS.length]}">${r.score.toFixed(1)}</b></td>
+  </tr>`).join("");
+}
 
 init().catch((e) => alert("初始化失败: " + e.message));
