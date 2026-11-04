@@ -69,6 +69,20 @@ TASKS = {
             "scramble_length": 20,  # 打乱步数（难度）
         },
     },
+    "klotski": {
+        "label": "华容道",
+        "params": {
+            "max_steps": 400,       # 最大移动步数（横刀立马最优约 116 步）
+            "scramble_length": 30,  # 随机游走打乱步数（难度）
+        },
+    },
+    "sokoban": {
+        "label": "推箱子",
+        "params": {
+            "max_steps": 200,       # 最大移动步数
+            "scramble_length": 9,   # 关卡难度等级 1~9（每档对应一关，越大越难；7~9 为四箱关卡）
+        },
+    },
 }
 
 RUN_TERMINAL_STATUS = ("finished", "stopped", "error")

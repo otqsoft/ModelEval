@@ -106,12 +106,13 @@ class Engine:
         case_data = task.create_case(idx, cfg["seed"], tp)
         case_id = db.execute(
             "INSERT INTO cases(run_id, idx, scramble, initial_state, created_at) VALUES(?,?,?,?,?)",
-            (run_id, idx, case_data["scramble"], case_data["cube"].render(), db.now()),
+            (run_id, idx, case_data["scramble"], task.render_state(case_data), db.now()),
         )
         self._emit(rs, run_id, "case_started", {
             "case_id": case_id, "idx": idx, "scramble": case_data["scramble"],
-            "state": case_data["cube"].render(),
+            "state": task.render_state(case_data),
             "max_steps": tp["max_steps"], "optimal_len": case_data.get("optimal_len"),
+            "visual": task.visual_state(case_data),
         }, case_id=case_id)
 
         # 每次调用的实时事件回调（绑定 run/case 上下文）

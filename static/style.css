@@ -199,6 +199,10 @@ input, select {
   font-size: 13px; background: var(--panel-2); color: var(--text); outline: none;
   transition: border-color .15s, box-shadow .15s;
 }
+.flt-bar { display: flex; gap: 16px; align-items: center; margin: 10px 0 14px; flex-wrap: wrap; }
+.flt-bar label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text2); white-space: nowrap; }
+.flt-bar select { width: auto; min-width: 110px; padding: 5px 10px; }
+.flt-bar .hint { margin: 0 0 0 auto; }
 input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0, 212, 255, .12); }
 select option { background: var(--panel); color: var(--text); }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -451,5 +455,227 @@ tr.case-row > td > .hint { display: inline-block; padding: 6px 0; }
 :root[data-theme="light"] .icard pre.reasoning { color: #7c3aed; }
 :root[data-theme="light"] .chat-rd pre { color: #7c3aed; }
 :root[data-theme="light"] #chat-drawer { box-shadow: -14px 0 36px rgba(15, 23, 42, .14); }
+
+/* ---- 2D 动画舞台（华容道 / 推箱子） ---- */
+.s2d-root {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background:
+    radial-gradient(ellipse 60% 42% at 50% 70%, rgba(0, 212, 255, .10), transparent 68%),
+    linear-gradient(rgba(30, 58, 95, .22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(30, 58, 95, .22) 1px, transparent 1px),
+    linear-gradient(180deg, #0c1a31, #081226);
+  background-size: auto, 44px 44px, 44px 44px, auto;
+}
+:root[data-theme="light"] .s2d-root {
+  background:
+    radial-gradient(ellipse 60% 42% at 50% 70%, rgba(59, 130, 246, .10), transparent 68%),
+    linear-gradient(rgba(59, 130, 246, .13) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, .13) 1px, transparent 1px),
+    linear-gradient(180deg, #f4f8ff, #e9f0fb);
+  background-size: auto, 44px 44px, 44px 44px, auto;
+}
+.s2d-title { font-size: 13px; color: var(--text2); margin-bottom: 12px; font-weight: 500; }
+.s2d-steps { color: var(--accent); font-weight: 600; margin-left: 12px; }
+.s2d-hint { font-size: 12px; color: var(--text2); margin-top: 12px; opacity: .8; letter-spacing: .5px; }
+.s2d-legend { display: flex; gap: 16px; align-items: center; margin-top: 12px; font-size: 12px; color: var(--text2); flex-wrap: wrap; justify-content: center; }
+.s2d-legend .chip { display: inline-flex; align-items: center; gap: 6px; }
+.s2d-legend .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.sw-cao { background: var(--bad); }
+.sw-target { border: 2px dashed var(--ok); background: transparent; }
+.sw-exitbar { background: linear-gradient(90deg, transparent, var(--ok), transparent); height: 6px; width: 18px; border-radius: 3px; }
+.sw-box { background: var(--warn); }
+.sw-goal { border: 2px dashed var(--ok); border-radius: 50%; background: transparent; }
+.sw-player { background: var(--accent); border-radius: 50%; }
+.sw-wall { background: var(--panel); border: 1px solid var(--border); }
+.s2d-board { position: relative; display: block; }
+
+/* 华容道 —— 等轴测 3D 场景 */
+.s2d-board.klotski {
+  transform: rotateX(55deg) rotateZ(45deg);
+  transform-style: preserve-3d;
+  border: none; border-radius: 6px;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .025) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .025) 0 1px, transparent 1px 44px),
+    radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, .30), transparent 78%),
+    linear-gradient(180deg, #0c1a31, #081226);
+}
+/* 棋子：彩色立体方块（顶面原色 + 两侧面自动加深） */
+.s2d-piece {
+  position: absolute; display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; color: #fff; font-weight: 600; user-select: none;
+  transition: left .14s ease, top .14s ease;
+  transform: translateZ(var(--pc-h, 28px));
+  transform-style: preserve-3d;
+  background: var(--pc, var(--accent-2));
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3), inset 0 0 14px rgba(255, 255, 255, .10);
+  z-index: 2;
+}
+.s2d-piece::before {
+  content: ""; position: absolute; left: 0; top: 100%; width: 100%; height: var(--pc-h, 28px);
+  background: color-mix(in srgb, var(--pc, #64748b) 62%, #0d1526);
+  transform-origin: top center; transform: rotateX(-90deg);
+  border-radius: 0 0 5px 5px;
+}
+.s2d-piece::after {
+  content: ""; position: absolute; left: 100%; top: 0; width: var(--pc-h, 28px); height: 100%;
+  background: color-mix(in srgb, var(--pc, #64748b) 45%, #0a1220);
+  transform-origin: left center; transform: rotateY(90deg);
+  border-radius: 0 0 5px 5px;
+}
+.s2d-piece.cao { box-shadow: 0 0 16px rgba(248, 113, 113, .55), inset 0 0 0 1px rgba(0, 0, 0, .3); }
+.s2d-piece.win { box-shadow: 0 0 26px rgba(52, 211, 153, .95), inset 0 0 0 1px rgba(0, 0, 0, .3) !important; }
+.s2d-target {
+  position: absolute; border: 2px dashed var(--ok); border-radius: 8px;
+  box-shadow: inset 0 0 18px rgba(52, 211, 153, .18), 0 0 12px rgba(52, 211, 153, .22);
+  pointer-events: none; z-index: 1;
+}
+.s2d-exit {
+  position: absolute; left: 50%; bottom: -2px; width: 50%; height: 8px;
+  transform: translateX(-50%);
+  background: linear-gradient(90deg, transparent, var(--ok), transparent);
+  border-radius: 4px; opacity: 1; pointer-events: none;
+  box-shadow: 0 0 14px rgba(52, 211, 153, .8);
+}
+.s2d-board.done { box-shadow: 0 0 22px rgba(52, 211, 153, .45); }
+
+/* 推箱子 —— 等轴测 3D 场景 */
+.s2d-root { perspective: 1600px; cursor: grab; }
+.s2d-root.s2d-dragging { cursor: grabbing; user-select: none; }
+.s2d-root.s2d-dragging .s2d-board { pointer-events: none; }
+.s2d-board.sokoban {
+  transform: rotateX(55deg) rotateZ(45deg);
+  transform-style: preserve-3d;
+  border: none; border-radius: 6px;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .025) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .025) 0 1px, transparent 1px 44px),
+    radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, .30), transparent 78%),
+    linear-gradient(180deg, #0c1a31, #081226);
+}
+.s2d-cell { position: absolute; transform-style: preserve-3d; }
+/* 墙体：立体方块（顶面 + 南/东两个侧面） */
+.s2d-cell.wall {
+  background: linear-gradient(135deg, #3e5069, #2e3d54 55%, #26344a);
+  border-radius: 2px;
+  transform: translateZ(var(--wall-h, 30px));
+  box-shadow: inset 0 0 0 1px rgba(160, 190, 230, .10);
+}
+.s2d-cell.wall::before {
+  content: ""; position: absolute; left: 0; top: 100%; width: 100%; height: var(--wall-h, 30px);
+  background: linear-gradient(180deg, #232f47, #182238);
+  transform-origin: top center; transform: rotateX(-90deg);
+}
+.s2d-cell.wall::after {
+  content: ""; position: absolute; left: 100%; top: 0; width: var(--wall-h, 30px); height: 100%;
+  background: linear-gradient(180deg, #1b2740, #131c2e);
+  transform-origin: left center; transform: rotateY(90deg);
+}
+/* 目标点：地面凹槽标记 */
+.s2d-cell.goal { box-shadow: inset 0 0 12px rgba(52, 211, 153, .28); }
+/* 砖墙（华容道围墙）：顶面砖块纹理 + 侧面砖缝 */
+.s2d-cell.wall.brick {
+  border-radius: 1px;
+  background:
+    linear-gradient(335deg, #a4643c 23px, transparent 23px),
+    linear-gradient(155deg, #b06f4a 23px, transparent 23px),
+    linear-gradient(335deg, #a4643c 23px, transparent 23px),
+    linear-gradient(155deg, #b06f4a 23px, transparent 23px),
+    linear-gradient(135deg, #7d4a2c, #6b3d22);
+  background-size: 58px 58px, 58px 58px, 58px 58px, 58px 58px, auto;
+  background-position: 0px 2px, 4px 35px, 29px 31px, 34px 6px, 0px 0px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .28);
+}
+.s2d-cell.wall.brick::before {
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, .20) 0 2px, transparent 2px 12px),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, .16) 0 2px, transparent 2px 22px),
+    linear-gradient(180deg, #74462a, #5d371f);
+}
+.s2d-cell.wall.brick::after {
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, .22) 0 2px, transparent 2px 12px),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, .18) 0 2px, transparent 2px 18px),
+    linear-gradient(180deg, #61391f, #4a2a16);
+}
+:root[data-theme="light"] .s2d-cell.wall.brick {
+  background:
+    linear-gradient(335deg, #c98d64 23px, transparent 23px),
+    linear-gradient(155deg, #d89a70 23px, transparent 23px),
+    linear-gradient(335deg, #c98d64 23px, transparent 23px),
+    linear-gradient(155deg, #d89a70 23px, transparent 23px),
+    linear-gradient(135deg, #b0754a, #9c643c);
+  background-size: 58px 58px, 58px 58px, 58px 58px, 58px 58px, auto;
+  background-position: 0px 2px, 4px 35px, 29px 31px, 34px 6px, 0px 0px;
+}
+.s2d-cell.goal::after {
+  content: ""; position: absolute; inset: 32%;
+  border: 2px dashed var(--ok); border-radius: 50%; opacity: .85;
+}
+/* 木箱：木质纹理立方体 */
+.s2d-box {
+  position: absolute;
+  box-sizing: border-box;
+  transform: translateZ(var(--box-h, 26px));
+  transform-style: preserve-3d;
+  border: 3px solid #7c4e1e;
+  border-radius: 4px;
+  background:
+    linear-gradient(45deg, transparent 43%, rgba(101, 64, 28, .85) 43% 57%, transparent 57%),
+    linear-gradient(-45deg, transparent 43%, rgba(101, 64, 28, .85) 43% 57%, transparent 57%),
+    repeating-linear-gradient(0deg, rgba(60, 35, 12, .22) 0 2px, transparent 2px 12px),
+    linear-gradient(135deg, #cf9350, #b87e3d 45%, #a06629);
+  box-shadow: inset 0 0 0 1px rgba(255, 222, 170, .28), inset 0 0 14px rgba(70, 40, 10, .35);
+  transition: left .12s ease, top .12s ease;
+}
+.s2d-box::before {
+  content: ""; position: absolute; left: 0; top: 100%; width: 100%; height: var(--box-h, 26px);
+  box-sizing: border-box; border: 3px solid #6b4218; border-top: none;
+  background:
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, .13) 0 2px, transparent 2px 10px),
+    linear-gradient(180deg, #96622c, #714419);
+  transform-origin: top center; transform: rotateX(-90deg);
+}
+.s2d-box::after {
+  content: ""; position: absolute; left: 100%; top: 0; width: var(--box-h, 26px); height: 100%;
+  box-sizing: border-box; border: 3px solid #5e3a14; border-top: none;
+  background:
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, .18) 0 2px, transparent 2px 10px),
+    linear-gradient(180deg, #7f5222, #5d3912);
+  transform-origin: left center; transform: rotateY(90deg);
+}
+.s2d-board.sokoban.done .s2d-box {
+  box-shadow: 0 0 16px rgba(52, 211, 153, .85), inset 0 0 0 2px var(--ok), inset 0 0 14px rgba(70, 40, 10, .35);
+}
+/* 玩家：悬浮球体 + 地面投影 */
+.s2d-player {
+  position: absolute; z-index: 3;
+  transform-style: preserve-3d;
+  transform: translateZ(calc(var(--box-h, 26px) * 0.72));
+  background: radial-gradient(circle at 32% 28%, #b8f1ff 0%, #4cc7f5 35%, #0e86c3 70%, #0a5f90 100%);
+  border-radius: 50%;
+  box-shadow: 0 0 14px rgba(0, 212, 255, .75), inset -3px -4px 8px rgba(0, 45, 80, .55);
+  transition: left .12s ease, top .12s ease;
+}
+.s2d-player::before {
+  content: ""; position: absolute; left: 8%; top: 8%; width: 84%; height: 84%;
+  border-radius: 50%; background: rgba(0, 0, 0, .38); filter: blur(3px);
+  transform: translateZ(calc(var(--box-h, 26px) * -0.72));
+}
+:root[data-theme="light"] .s2d-board.sokoban,
+:root[data-theme="light"] .s2d-board.klotski {
+  background:
+    repeating-linear-gradient(0deg, rgba(59, 130, 246, .06) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(90deg, rgba(59, 130, 246, .06) 0 1px, transparent 1px 44px),
+    radial-gradient(ellipse at 50% 50%, rgba(30, 60, 110, .12), transparent 78%),
+    linear-gradient(180deg, #e8effb, #dbe6f7);
+}
+:root[data-theme="light"] .s2d-cell.wall {
+  background: linear-gradient(135deg, #a9bcd8, #93a8c6 55%, #8399b8);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .45);
+}
+:root[data-theme="light"] .s2d-cell.wall::before { background: linear-gradient(180deg, #8299b8, #6d84a4); }
+:root[data-theme="light"] .s2d-cell.wall::after { background: linear-gradient(180deg, #758cab, #5f7695); }
 :root[data-theme="light"] tr.tree-provider td { background: rgba(59, 130, 246, .05); }
 :root[data-theme="light"] .live-dot { background: var(--accent-2); box-shadow: 0 0 8px rgba(59, 130, 246, .6); }

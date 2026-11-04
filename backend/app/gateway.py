@@ -180,7 +180,12 @@ class OpenAICompatGateway:
 
 
 class MockGateway:
-    """内置演示网关：按预设解法模拟流式返回，用于自测与界面演示，无需 API Key。"""
+    """内置演示网关：按预设解法模拟流式返回，用于自测与界面演示，无需 API Key。
+
+    解法串由任务侧提供（solution_for），工具名取任务注册的第一个工具，
+    统一注入名为 moves 的参数——各任务的 solution 串格式由任务自行约定：
+    魔方为转动序列、华容道为 JSON 移动数组、推箱子为 UDLR 方向串。
+    """
 
     def __init__(self, solution: str, on_event=None):
         self.solution = solution
@@ -201,10 +206,12 @@ class MockGateway:
         self._calls += 1
         self._emit("llm_start", {"model": "mock-solver"})
         if self._calls == 1 and tools:
-            self._fake_stream("reasoning", "模拟思考：直接给出打乱序列的逆序列即可还原。")
-            tc = {"id": f"call_mock_{self._calls}", "name": "turn_cube", "arguments": '{"moves": "%s"}' % self.solution}
+            tool_name = (tools[0].get("function") or {}).get("name", "solve")
+            self._fake_stream("reasoning", "模拟思考：直接按参考解法执行即可完成任务。")
+            tc = {"id": f"call_mock_{self._calls}", "name": tool_name,
+                  "arguments": json.dumps({"moves": self.solution}, ensure_ascii=False)}
             self._fake_stream("tool_call", tc["arguments"])
-            resp = {"content": "", "reasoning": "模拟思考：直接给出打乱序列的逆序列即可还原。",
+            resp = {"content": "", "reasoning": "模拟思考：直接按参考解法执行即可完成任务。",
                     "tool_calls": [tc], "finish_reason": "tool_calls",
                     "usage": {"prompt_tokens": 300, "completion_tokens": 120, "total_tokens": 420},
                     "latency_ms": int((time.time() - t0) * 1000),

@@ -1,6 +1,6 @@
 # ModelEval 模型测试评估平台
 
-对第三方 LLM（GLM / DeepSeek / Kimi / MiniMax / MiMo / 自定义 OpenAI 兼容端点）进行**可插拔任务评测**，默认内置**魔方还原**任务（思考 + 工具调用 + 状态校验器判分）。
+对第三方 LLM（GLM / DeepSeek / Kimi / MiniMax / MiMo / 自定义 OpenAI 兼容端点）进行**可插拔任务评测**，内置三种任务：**魔方还原**、**华容道**、**推箱子**（思考 + 工具调用 + 状态校验器判分）。
 
 > 定位：单机工具型平台，零运维（FastAPI + SQLite），前端为原生 HTML/JS。
 
@@ -8,7 +8,7 @@
 
 ## ✨ 核心特性
 
-- **插件化测评任务**：统一 `BaseTask` 五方法接口，新增任务即插即用（魔方还原为默认实现）。
+- **插件化测评任务**：统一 `BaseTask` 接口，新增任务即插即用（内置魔方还原 / 华容道 / 推箱子）。
 - **多模型统一管理**：全部基于 OpenAI 兼容协议，内置 6 家 Provider 预设 + 自定义端点。
 - **供应商与模型管理（DB 托管）**：供应商支持协议（OpenAI 兼容 / Anthropic）、base_url、api_key；一个供应商可挂多个模型，模型含命中/未命中输入价、输出价（元/百万 Token）、上下文长度、temperature/top_p/max_tokens、是否多模态。评测时选择模型即自动载入参数（可改）。
 - **三层参数体系**：
@@ -78,12 +78,18 @@ uv run app.py                         # 启动服务（默认 127.0.0.1:8660）
 | retry | 2 | 失败重试次数 |
 | min_call_interval | 0.0 | 相邻调用最小间隔（秒，限流防超额） |
 
-**任务专属参数（魔方还原）**
+**任务专属参数（按任务）**
 
-| 参数 | 默认 | 说明 |
-|------|------|------|
-| max_steps | 50 | 最大还原步数 |
-| scramble_length | 20 | 打乱步数（难度） |
+| 任务 | 参数 | 默认 | 说明 |
+|------|------|------|------|
+| 魔方还原 | max_steps | 50 | 最大还原步数 |
+| 魔方还原 | scramble_length | 20 | 打乱步数（难度） |
+| 华容道 | max_steps | 400 | 最大移动步数（「横刀立马」最优约 116 步） |
+| 华容道 | scramble_length | 30 | 随机游走打乱步数（难度） |
+| 推箱子 | max_steps | 200 | 最大移动步数 |
+| 推箱子 | scramble_length | 9 | 关卡难度等级 1~9（每档对应一关，越大越难；7~9 为四箱关卡） |
+
+> 华容道最优解由同型滑块等价化 BFS 计算（状态空间约 2.6 万）；推箱子每个关卡均预验证可解，最优步数由 BFS 给出。
 
 ---
 
@@ -111,8 +117,10 @@ model-eval/
 │   │   ├── report.py        # 报告汇总 + 导出
 │   │   ├── config.py         # Provider 预设 / 默认参数 / 任务注册
 │   │   └── tasks/            # 任务插件层
-│   │       ├── base.py       # BaseTask 五方法接口
-│   │       └── cube_task.py  # 魔方还原实现
+│   │       ├── base.py       # BaseTask 插件接口
+│   │       ├── cube_task.py  # 魔方还原实现
+│   │       ├── klotski_task.py  # 华容道实现（横刀立马 + BFS 求解）
+│   │       └── sokoban_task.py  # 推箱子实现（内置关卡 + BFS 求解）
 │   ├── data/                # SQLite 数据库与导出的报告文件
 │   ├── app.py               # 便捷启动入口（uv run app.py）
 │   ├── pyproject.toml       # uv 项目配置（依赖声明 + uv.lock）

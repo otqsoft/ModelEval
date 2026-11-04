@@ -60,6 +60,9 @@ class CubeTask(BaseTask):
             "optimal_len": len(opt.split()) if opt else None,
         }
 
+    def render_state(self, case: dict) -> str:
+        return case["cube"].render()
+
     def build_messages(self, case: dict) -> list:
         max_steps = case["params"]["max_steps"]
         return [

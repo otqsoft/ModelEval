@@ -32,6 +32,14 @@ class BaseTask:
     def is_solved(self, case: dict) -> bool:
         raise NotImplementedError
 
+    def render_state(self, case: dict) -> str:
+        """渲染当前任务状态为文本（存库 initial_state / 事件流 case_started.state）。"""
+        raise NotImplementedError
+
+    def visual_state(self, case: dict) -> dict | None:
+        """前端 2D/3D 舞台首帧数据；无动画舞台的任务返回 None。"""
+        return None
+
     def score(self, case: dict, solved: bool) -> dict:
         """终局评分（任务自定义指标）。"""
         raise NotImplementedError

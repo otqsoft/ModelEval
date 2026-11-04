@@ -90,8 +90,8 @@
         <details class="fold" open>
           <summary>任务参数</summary>
         <div class="grid3">
-          <div class="group"><label>最大还原步数</label><input type="number" id="f-max_steps" value="50"></div>
-          <div class="group"><label>打乱步数</label><input type="number" id="f-scramble_length" value="20"></div>
+          <div class="group"><label>最大步数</label><input type="number" id="f-max_steps" value="50"></div>
+          <div class="group"><label>打乱步数 / 难度</label><input type="number" id="f-scramble_length" value="20"></div>
         </div>
         </details>
 
@@ -141,6 +141,12 @@
   <section id="view-history" class="view">
     <div class="panel">
       <h3>评测报告</h3>
+      <div class="flt-bar" id="run-filters">
+        <label>任务 <select id="flt-task"><option value="">全部</option></select></label>
+        <label>模型 <select id="flt-model"><option value="">全部</option></select></label>
+        <label>状态 <select id="flt-status"><option value="">全部</option></select></label>
+        <span class="hint" id="flt-count"></span>
+      </div>
       <table class="tbl" id="runs-table">
         <thead><tr><th>ID</th><th>任务</th><th>模型</th><th>样例</th><th>状态</th><th>成功率</th><th>费用</th><th>创建时间</th><th></th></tr></thead>
         <tbody></tbody>
@@ -280,6 +286,7 @@
 </aside>
 
 <script src="/static/cube3d.js"></script>
+<script src="/static/stage2d.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

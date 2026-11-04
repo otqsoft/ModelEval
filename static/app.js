@@ -2,6 +2,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 let providers = [], tasks = [], currentRun = null, es = null;
+let currentTask = "cube";   // 当前评测任务（非 cube 任务不驱动 3D 魔方）
 
 // ---------- 主题切换（深色默认，localStorage 记忆） ----------
 function applyTheme(t) {
@@ -43,12 +44,19 @@ $$(".tab").forEach((t) => t.onclick = () => {
 });
 
 // ---------- 初始化 ----------
+/* 任务 ID → 名称（如 klotski → 华容道），未匹配时原样返回 */
+function taskLabel(id) {
+  const t = (tasks || []).find((x) => x.id === id);
+  return t ? t.label : (id || "");
+}
+
 async function init() {
   [providers, tasks] = await Promise.all([api("/api/providers"), api("/api/tasks")]);
   $("#f-task").innerHTML = tasks.map((t) => `<option value="${t.id}">${t.label}</option>`).join("");
   renderProviders();
   bindForm();
   window.cube3d = Cube3D.mount($("#cube-stage"), $("#cube3d"), $("#cube-label"));
+  window.stage2d = Stage2D.mount($("#cube-stage"));
 }
 
 function renderProviders() {
@@ -97,6 +105,19 @@ function onModelChange() {
 function bindForm() {
   $("#f-provider").onchange = onProviderChange;
   $("#f-model").onchange = onModelChange;
+  $("#f-task").onchange = () => {
+    const id = $("#f-task").value;
+    const t = tasks.find((x) => x.id === id);
+    if (t && t.params) {
+      $("#f-max_steps").value = t.params.max_steps;
+      $("#f-scramble_length").value = t.params.scramble_length;
+    }
+    currentTask = id;
+    if (window.stage2d) window.stage2d.preview(id);   // 右侧实时监控随任务切换
+  };
+  $("#flt-task").onchange = renderRuns;      // 评测报告过滤栏
+  $("#flt-model").onchange = renderRuns;
+  $("#flt-status").onchange = renderRuns;
   $("#btn-save-key").onclick = async () => {
     const p = curProvider();
     await api(`/api/providers/${p.id}`, { method: "PUT", body: JSON.stringify({
@@ -146,7 +167,7 @@ async function startRun(debug) {
   const cfg = collectConfig(debug ? 1 : undefined);
   try {
     const res = await api("/api/runs", { method: "POST", body: JSON.stringify(cfg) });
-    openStream(res.run_id, cfg.n_cases);
+    openStream(res.run_id, cfg.n_cases, cfg.task);
   } catch (e) { alert("启动失败: " + e.message); }
 }
 
@@ -159,8 +180,10 @@ async function saveTemplate() {
 }
 
 // ---------- 实时流 ----------
-function openStream(runId, nCases) {
+function openStream(runId, nCases, task) {
   currentRun = runId;
+  currentTask = task || "cube";
+  if (window.stage2d) window.stage2d.preview(currentTask);   // 保持对应任务舞台（魔方则还原 3D 视图），避免闪现魔方
   const feed = $("#feed");
   feed.innerHTML = "";
   $("#run-summary").classList.add("hidden");
@@ -186,7 +209,11 @@ function openStream(runId, nCases) {
           <span class="hint">上限 ${p.max_steps} 步${p.optimal_len ? " · 参考最优 " + p.optimal_len + " 步" : ""}</span>
           <span class="result" id="case-r-${p.case_id}"></span>`;
         feed.appendChild(d);
-        if (window.cube3d) window.cube3d.reset((p.scramble || "").split(/\s+/).filter(Boolean));
+        if (currentTask === "cube" && window.cube3d) {
+          window.cube3d.reset((p.scramble || "").split(/\s+/).filter(Boolean));
+        } else if (window.stage2d && p.visual) {
+          window.stage2d.setVisual(p.visual);   // 华容道/推箱子初始布局（自动覆盖预览舞台）
+        }
         break;
       }
       case "llm_start": {
@@ -235,12 +262,14 @@ function openStream(runId, nCases) {
           const el = document.createElement("div");
           el.className = "icard tool";
           const r = p.result || {};
-          el.innerHTML = `<div class="ihead"><b>工具 turn_cube</b><span>${esc((r.applied || []).join(" "))}</span>
-            ${r.solved ? '<span style="color:var(--ok)">已还原!</span>' : ""}${r.error ? `<span style="color:var(--bad)">${esc(r.error)}</span>` : ""}</div>
+          const toolName = p.tool_call?.function?.name || "tool";
+          el.innerHTML = `<div class="ihead"><b>工具 ${esc(toolName)}</b><span>${esc((r.applied || []).join(" "))}</span>
+            ${r.solved ? '<span style="color:var(--ok)">已完成!</span>' : ""}${r.error ? `<span style="color:var(--bad)">${esc(r.error)}</span>` : ""}</div>
             <details><summary>入参 / 返回</summary><pre>${esc(JSON.stringify({ 入参: p.tool_call, 返回: r }, null, 1))}</pre></details>`;
           feed.appendChild(el);
           feed.scrollTop = feed.scrollHeight;
-          if (window.cube3d && r.applied && r.applied.length) window.cube3d.apply(r.applied);
+          if (currentTask === "cube" && window.cube3d && r.applied && r.applied.length) window.cube3d.apply(r.applied);
+          else if (window.stage2d && r.frames && r.frames.length) window.stage2d.playFrames(r.frames);   // 逐步动画
         }
         break;
       }
@@ -259,16 +288,18 @@ function openStream(runId, nCases) {
         break;
       }
       case "moves_applied": {
-        if (window.cube3d && p.moves && p.moves.length) window.cube3d.apply(p.moves);
+        if (currentTask === "cube" && window.cube3d && p.moves && p.moves.length) window.cube3d.apply(p.moves);
         break;
       }
       case "case_finished": {
         const tag = $(`#case-r-${p.case_id}`);
         if (tag) {
-          tag.textContent = `${p.solved ? "✅ 还原" : "❌ " + stopLabel(p.stop_reason)} · ${p.moves_used} 步`;
+          tag.textContent = `${p.solved ? "✅ 完成" : "❌ " + stopLabel(p.stop_reason)} · ${p.moves_used} 步`;
           tag.className = "result " + (p.solved ? "ok" : "bad");
         }
-        if (window.cube3d) window.cube3d.setLabel(p.solved ? "✔ 已还原" : "✘ " + stopLabel(p.stop_reason), p.solved ? "ok" : "bad");
+        if (currentTask === "cube" && window.cube3d)
+          window.cube3d.setLabel(p.solved ? "✔ 已还原" : "✘ " + stopLabel(p.stop_reason), p.solved ? "ok" : "bad");
+        else if (window.stage2d) window.stage2d.setDone(p.solved);
         break;
       }
       case "run_finished": {
@@ -316,8 +347,29 @@ function stopLabel(r) {
 // ---------- 历史 ----------
 const fmtCost = (c) => (c && c.has_price) ? "¥" + (+c.total || 0).toFixed(4) : "—";
 
-async function loadRuns() {
-  const runs = await api("/api/runs");
+let allRuns = [];   // 评测记录缓存（过滤栏数据源）
+
+function buildRunFilterOptions() {
+  const ft = $("#flt-task"), fm = $("#flt-model"), fs = $("#flt-status");
+  const cur = { task: ft.value, model: fm.value, status: fs.value };
+  ft.innerHTML = '<option value="">全部</option>' +
+    tasks.map((t) => `<option value="${t.id}">${esc(t.label)}</option>`).join("");
+  fm.innerHTML = '<option value="">全部</option>' +
+    [...new Set(allRuns.map((r) => `${r.provider}/${r.model}`))].sort()
+      .map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
+  fs.innerHTML = '<option value="">全部</option>' +
+    [["running", "运行中"], ["finished", "已完成"], ["stopped", "已停止"], ["error", "异常"]]
+      .map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+  ft.value = cur.task; fm.value = cur.model; fs.value = cur.status;   // 保持已选值（选项缺失则回退"全部"）
+}
+
+function renderRuns() {
+  const f = { task: $("#flt-task").value, model: $("#flt-model").value, status: $("#flt-status").value };
+  const runs = allRuns.filter((r) =>
+    (!f.task || r.task === f.task) &&
+    (!f.model || `${r.provider}/${r.model}` === f.model) &&
+    (!f.status || r.status === f.status));
+  $("#flt-count").textContent = allRuns.length ? `${runs.length} / ${allRuns.length} 条` : "";
   const tb = $("#runs-table tbody");
   tb.innerHTML = runs.map((r) => {
     let rate = "-", cost = "—";
@@ -330,12 +382,18 @@ async function loadRuns() {
     } catch {}
     return `<tr class="tree-provider">
       <td><span class="tree-toggle link" onclick="toggleRun(${r.id}, this)">+</span> #${r.id}</td>
-      <td>${esc(r.task)}</td><td>${esc(r.provider)}/${esc(r.model)}</td>
+      <td>${esc(taskLabel(r.task))}</td><td>${esc(r.provider)}/${esc(r.model)}</td>
       <td>${r.n_cases}</td><td>${badge(r.status)}</td><td>${rate}</td><td>${cost}</td>
       <td>${esc(r.created_at)}</td>
       <td><span class="link" onclick="openReport(${r.id})">报告</span></td></tr>
     <tr class="case-row" id="run-children-${r.id}" style="display:none"><td colspan="9"><span class="hint">加载中…</span></td></tr>`;
-  }).join("") || `<tr><td colspan="9" class="empty">暂无评测记录</td></tr>`;
+  }).join("") || `<tr><td colspan="9" class="empty">暂无匹配的评测记录</td></tr>`;
+}
+
+async function loadRuns() {
+  allRuns = await api("/api/runs");
+  buildRunFilterOptions();
+  renderRuns();
 }
 
 window.toggleRun = async function (runId, el) {
@@ -374,7 +432,7 @@ async function loadTemplates() {
   const tb = $("#tpl-table tbody");
   tb.innerHTML = tpls.map((t) => {
     const c = t.config || {};
-    return `<tr><td>${esc(t.name)}</td><td>${esc(c.task || "")}</td><td>${esc(c.provider || "")}</td>
+    return `<tr><td>${esc(t.name)}</td><td>${esc(taskLabel(c.task || ""))}</td><td>${esc(c.provider || "")}</td>
       <td>${esc(c.model || "")}</td><td>${c.n_cases || ""}</td><td>${esc(t.updated_at)}</td>
       <td><span class="link" onclick='loadTpl(${JSON.stringify(JSON.stringify(t.config))},${t.id})'>加载</span>
       ｜<span class="link" onclick='delTpl(${t.id})'>删除</span></td></tr>`;
@@ -383,6 +441,7 @@ async function loadTemplates() {
 window.loadTpl = function (cfgJson, id) {
   const c = JSON.parse(cfgJson);
   $("#f-task").value = c.task || "cube";
+  $("#f-task").dispatchEvent(new Event("change"));   // 同步参数默认值 + 舞台预览
   $("#f-provider").value = c.provider || "";
   onProviderChange();
   $("#f-model").value = c.model || "";

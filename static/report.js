@@ -8,13 +8,19 @@ const stopLabel = (r) => ({ solved: "任务成功", max_steps: "步数超限", m
 async function api(url) { const r = await fetch(url); if (!r.ok) throw new Error(await r.text()); return r.json(); }
 
 const runId = new URLSearchParams(location.search).get("run_id");
+let TASK_LABELS = {};   // 任务 ID → 名称（klotski → 华容道）
+
+const taskLabel = (id) => TASK_LABELS[id] || id || "";
 
 async function init() {
+  try {   // 任务名称映射（失败不阻塞报告渲染）
+    TASK_LABELS = Object.fromEntries((await api("/api/tasks")).map((t) => [t.id, t.label]));
+  } catch {}
   if (!runId) { $("#r-title").textContent = "缺少 run_id 参数"; return; }
   const data = await api(`/api/runs/${runId}/report`);
   const s = data.summary, g = s.generic;
   $("#r-title").innerHTML =
-    `Run #${s.run_id} · ${esc(s.task)} · <code>${esc(s.provider)}/${esc(s.model)}</code>` +
+    `Run #${s.run_id} · ${esc(taskLabel(s.task))} · <code>${esc(s.provider)}/${esc(s.model)}</code>` +
     ` <span class="badge ${data.run.status}">${{ running: "运行中", finished: "已完成", stopped: "已停止", error: "异常" }[data.run.status] || data.run.status}</span>`;
   ["md", "xlsx", "jsonl"].forEach((k) => {
     $("#exp-" + k).href = `/api/runs/${runId}/export/${k === "md" ? "markdown" : k}`;
@@ -56,7 +62,7 @@ async function init() {
   const runs = await api("/api/runs");
   $("#r-compare").innerHTML = '<option value="">选择对比 Run</option>' +
     runs.filter((r) => r.id !== +runId && r.summary)
-      .map((r) => `<option value="${r.id}">#${r.id} ${esc(r.provider)}/${esc(r.model)} ${esc(r.task)}</option>`).join("");
+      .map((r) => `<option value="${r.id}">#${r.id} ${esc(r.provider)}/${esc(r.model)} ${esc(taskLabel(r.task))}</option>`).join("");
   $("#r-compare").onchange = renderCompare;
 }
 
